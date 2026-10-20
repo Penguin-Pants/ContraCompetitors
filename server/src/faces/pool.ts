@@ -3,8 +3,12 @@ import { fileURLToPath } from 'node:url';
 import type { FaceCrop } from './crop.ts';
 import type { WorkerJob, WorkerReply } from './worker.ts';
 
-export class PoolTimeout extends Error {}
-export class PoolRejected extends Error {}
+export class PoolTimeout extends Error {
+  override name = 'PoolTimeout';
+}
+export class PoolRejected extends Error {
+  override name = 'PoolRejected';
+}
 
 interface Pending {
   job: WorkerJob;

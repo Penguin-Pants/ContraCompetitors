@@ -63,6 +63,17 @@ describe('processImage', () => {
     expect(new Set(crops.map((c) => c.id)).size).toBe(2);
   });
 
+  test('the minimum face width applies in source pixels: ~97 px faces in a 4000 px photo are kept', async () => {
+    const crew = await sharp(photo('gemini7-crew.jpg')).resize(1000).toBuffer();
+    const big = await sharp({
+      create: { width: 4000, height: 3000, channels: 3, background: '#ffffff' },
+    })
+      .composite([{ input: crew, left: 0, top: 0 }])
+      .jpeg()
+      .toBuffer();
+    expect(await processImage(big, detector)).toHaveLength(2);
+  });
+
   test('a landscape photo with no face gives 0', async () => {
     expect(await processImage(photo('launch-pad-aerial.jpg'), detector)).toEqual([]);
   });

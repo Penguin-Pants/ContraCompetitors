@@ -23,7 +23,11 @@ export interface RgbImage {
 }
 
 export interface Detector {
-  detect(img: RgbImage): Promise<FaceBox[]>;
+  /**
+   * Boxes in `img` pixels. `scale` is source pixels per `img` pixel (the image was downscaled for
+   * detection), so the minimum face width is checked in source pixels.
+   */
+  detect(img: RgbImage, scale?: number): Promise<FaceBox[]>;
 }
 
 export interface DetectorOptions {
@@ -103,7 +107,7 @@ export async function createYunetDetector(
     interOpNumThreads: 1,
   });
   return {
-    async detect(img: RgbImage): Promise<FaceBox[]> {
+    async detect(img: RgbImage, scale = 1): Promise<FaceBox[]> {
       const padW = Math.ceil(img.width / DIVISOR) * DIVISOR;
       const padH = Math.ceil(img.height / DIVISOR) * DIVISOR;
       const plane = padW * padH;
@@ -133,7 +137,7 @@ export async function createYunetDetector(
             h: Math.min(img.height, b.y + b.h) - y,
           };
         })
-        .filter((b) => b.w >= opts.minFaceWidth && b.h > 0);
+        .filter((b) => b.w * scale >= opts.minFaceWidth && b.h > 0);
     },
   };
 }

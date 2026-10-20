@@ -42,13 +42,36 @@ function resolve(raw: string | undefined, base: URL): string | null {
   }
 }
 
+/**
+ * Candidates of a srcset, after the HTML parsing rules: a URL runs to the next whitespace (trailing
+ * commas end it), and its descriptors run to the next comma. So `a.jpg 1x,b.jpg 2x` gives two
+ * candidates, and a comma inside a URL stays in it.
+ */
+function srcsetCandidates(srcset: string): { url: string; desc: string }[] {
+  const out: { url: string; desc: string }[] = [];
+  let i = 0;
+  while (i < srcset.length) {
+    while (i < srcset.length && /[\s,]/.test(srcset[i]!)) i++;
+    const start = i;
+    while (i < srcset.length && !/\s/.test(srcset[i]!)) i++;
+    const url = srcset.slice(start, i);
+    if (!url) break;
+    if (url.endsWith(',')) {
+      out.push({ url: url.replace(/,+$/, ''), desc: '' });
+      continue;
+    }
+    const descStart = i;
+    while (i < srcset.length && srcset[i] !== ',') i++;
+    out.push({ url, desc: srcset.slice(descStart, i).trim() });
+  }
+  return out;
+}
+
 /** Largest candidate of a srcset: highest `w`, else highest `x`, else the last. */
 export function largestFromSrcset(srcset: string): string | null {
   let best: { url: string; score: number } | null = null;
-  for (const part of srcset.split(/,\s+(?=\S)/)) {
-    const [url, desc = '1x'] = part.trim().split(/\s+/);
-    if (!url) continue;
-    const m = /^([\d.]+)([wx])$/.exec(desc);
+  for (const { url, desc } of srcsetCandidates(srcset)) {
+    const m = /^([\d.]+)([wx])$/.exec(desc || '1x');
     const score = m ? Number(m[1]) * (m[2] === 'w' ? 1 : 1000) : 0;
     if (!best || score >= best.score) best = { url, score };
   }
@@ -176,7 +199,12 @@ export function selectPages(
     u.search = '';
     const key = u.href;
     if (taken.has(key)) continue;
-    const path = decodeURIComponent(u.pathname);
+    let path = u.pathname;
+    try {
+      path = decodeURIComponent(path);
+    } catch {
+      // A malformed escape (`%zz`): match on the raw path.
+    }
     let kind: PageKind | null = null;
     if (TEAM_RE.test(path) || TEAM_RE.test(link.text)) kind = 'team';
     else if (BLOG_RE.test(path)) {

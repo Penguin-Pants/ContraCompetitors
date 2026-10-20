@@ -95,7 +95,8 @@ const USER_AGENT = 'LogisticsRunBot/1.0 (game theming; contact via site footer)'
 interface Target {
   url: URL;
   host: string;
-  address: ResolvedAddress;
+  /** Every answer, all checked. The connection tries them in order. */
+  addresses: ResolvedAddress[];
 }
 
 function throwIfAborted(signal?: AbortSignal) {
@@ -139,24 +140,35 @@ export async function validateTarget(
     if (!verdict.allowed)
       throw new FetchError('unreachable', `${host} -> ${a.address}: ${verdict.reason}`);
   }
-  return { url, host, address: addresses[0]! };
+  return { url, host, addresses };
 }
 
-/** Connects only to the validated address, so a second DNS answer cannot change the target. */
-function pinnedAgent(target: ResolvedAddress): Agent {
+/** Drops a body that is not read, so it cannot stream past the caps or the budget. */
+function drop(body: { on(e: 'error', f: () => void): unknown; destroy(): unknown }) {
+  body.on('error', () => {});
+  body.destroy();
+}
+
+/**
+ * Connects only to the validated addresses, so a second DNS answer cannot change the target.
+ * With all of them, Node's connect tries the next one when one does not answer.
+ */
+function pinnedAgent(addresses: ResolvedAddress[]): Agent {
+  const first = addresses[0]!;
   return new Agent({
     connections: 1,
     connect: {
       timeout: LIMITS.requestHeadersMs,
+      autoSelectFamily: true,
       lookup: (_hostname, options, callback) => {
         const opts = options as { all?: boolean };
-        if (opts.all) callback(null, [{ address: target.address, family: target.family }]);
-        else
-          (callback as (e: null, a: string, f: number) => void)(
+        if (opts.all)
+          callback(
             null,
-            target.address,
-            target.family,
+            addresses.map((a) => ({ address: a.address, family: a.family })),
           );
+        else
+          (callback as (e: null, a: string, f: number) => void)(null, first.address, first.family);
       },
     },
   });
@@ -178,7 +190,7 @@ export async function safeFetch(
     throwIfAborted(opts.signal);
     const target = await validateTarget(current, policy, opts.signal);
     hosts.push(target.host);
-    const agent = pinnedAgent(target.address);
+    const agent = pinnedAgent(target.addresses);
     try {
       let res;
       try {
@@ -196,7 +208,7 @@ export async function safeFetch(
       }
       const location = res.headers.location;
       if (res.statusCode >= 300 && res.statusCode < 400 && typeof location === 'string') {
-        await res.body.dump();
+        drop(res.body);
         let next: URL;
         try {
           next = new URL(location, target.url);
@@ -221,12 +233,12 @@ export async function safeFetch(
         continue;
       }
       if (res.statusCode < 200 || res.statusCode >= 300) {
-        await res.body.dump();
+        drop(res.body);
         throw new FetchError('http_error', `${target.host}: HTTP ${res.statusCode}`);
       }
       const contentType = String(res.headers['content-type'] ?? '').toLowerCase();
       if (!TYPE_PREFIX[opts.kind].some((p) => contentType.startsWith(p))) {
-        await res.body.dump();
+        drop(res.body);
         throw new FetchError(
           'bad_type',
           `${target.host}: ${contentType || 'no content-type'} for ${opts.kind}`,
@@ -235,7 +247,7 @@ export async function safeFetch(
       const cap = LIMITS.bodyBytes[opts.kind];
       const declared = Number(res.headers['content-length']);
       if (Number.isFinite(declared) && declared > cap) {
-        res.body.destroy();
+        drop(res.body);
         throw new FetchError('too_large', `${target.host}: content-length ${declared} > ${cap}`);
       }
       const chunks: Buffer[] = [];
@@ -250,7 +262,7 @@ export async function safeFetch(
           chunks.push(buf);
         }
       } catch (err) {
-        res.body.destroy();
+        drop(res.body);
         if (err instanceof FetchError) throw err;
         if (opts.signal?.aborted) throw new FetchError('aborted', 'ingestion deadline');
         throw new FetchError('unreachable', `${target.host}: ${(err as Error).message}`);

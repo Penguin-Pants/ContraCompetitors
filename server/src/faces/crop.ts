@@ -85,12 +85,11 @@ export async function processImage(bytes: Uint8Array, detector: Detector): Promi
       .toColourspace('srgb')
       .raw()
       .toBuffer({ resolveWithObject: true });
-    const boxes = await detector.detect({
-      data: small.data,
-      width: small.info.width,
-      height: small.info.height,
-    });
     const scale = full.width / small.info.width;
+    const boxes = await detector.detect(
+      { data: small.data, width: small.info.width, height: small.info.height },
+      scale,
+    );
     const crops: FaceCrop[] = [];
     for (const b of boxes) {
       const region = cropRegion(

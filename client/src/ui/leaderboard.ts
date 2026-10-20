@@ -23,6 +23,7 @@ export class LeaderboardView {
   private readonly timeMs: number;
   /** Created once per finished run and reused on every retry, so a run is stored once. */
   private readonly submissionId: string;
+  private live = true;
 
   constructor(slot: HTMLElement, difficulty: Difficulty, timeMs: number, submissionId: string) {
     this.slot = slot;
@@ -31,14 +32,21 @@ export class LeaderboardView {
     this.submissionId = submissionId;
   }
 
+  /** The post-game screen moved on: answers that arrive later change nothing. */
+  cancel() {
+    this.live = false;
+  }
+
   async start() {
     this.slot.replaceChildren(el('p', { class: 'note', text: 'Loading the Top 10...' }));
     let rows: ScoreRow[];
     try {
       rows = (await getLeaderboard(this.difficulty)).rows;
     } catch (err) {
+      if (!this.live) return;
       return this.problem(`Could not load the Top 10: ${errorText(err)}`, () => void this.start());
     }
+    if (!this.live) return;
     if (qualifies(rows, this.timeMs)) this.askInitials();
     else this.board(rows, null, 'Not fast enough for the Top 10 this time.');
   }
@@ -90,8 +98,9 @@ export class LeaderboardView {
         initials,
         timeMs: this.timeMs,
       });
-      this.board(res.rows, res.rowId, '');
+      if (this.live) this.board(res.rows, res.rowId, '');
     } catch (err) {
+      if (!this.live) return;
       this.problem(
         `Your time ${formatTime(this.timeMs)} was not saved: ${errorText(err)}`,
         () => void this.submit(initials),

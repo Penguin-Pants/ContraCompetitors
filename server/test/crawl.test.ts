@@ -80,5 +80,21 @@ describe('crawl', () => {
   test('largestFromSrcset', () => {
     expect(largestFromSrcset('a.jpg 1x, b.jpg 3x, c.jpg 2x')).toBe('b.jpg');
     expect(largestFromSrcset('only.jpg')).toBe('only.jpg');
+    // No space after the comma (minified markup).
+    expect(largestFromSrcset('small.jpg 1x,large.jpg 2x')).toBe('large.jpg');
+    expect(largestFromSrcset('a.jpg 100w,b.jpg 800w,c.jpg 400w')).toBe('b.jpg');
+    // A comma inside a URL stays part of it (image CDNs use them).
+    expect(largestFromSrcset('/i/w_100,h_100/a.jpg 1x, /i/w_200,h_200/a.jpg 2x')).toBe(
+      '/i/w_200,h_200/a.jpg',
+    );
+  });
+
+  test('a same-site link with a malformed percent escape is matched on its raw path, not a crash', () => {
+    const links = [
+      { url: 'https://corp.test/team/%zz', text: 'x' },
+      { url: 'https://corp.test/about/%E0%A4%A', text: 'Leadership' },
+    ];
+    const pages = selectPages(links, 'https://corp.test/', new Set());
+    expect(pages.map((p) => p.kind)).toEqual(['team', 'team']);
   });
 });

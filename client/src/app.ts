@@ -44,6 +44,8 @@ export class App {
   private readonly errors: ErrorView;
   private readonly upload: UploadView;
   private readonly faces = new FaceStore();
+  /** The Top 10 view of the shown post-game screen. */
+  private leaderboard: LeaderboardView | null = null;
   private setup: RunSetup | null = null;
   private tinted: { theme: Theme; sheets: GameSheets } | null = null;
 
@@ -90,6 +92,7 @@ export class App {
   showMenu() {
     this.ctx.input.enabled = false;
     this.ctx.input.clear();
+    this.leaderboard?.cancel();
     this.post.hide();
     this.setScene(createIdleScene(this.ctx));
     this.menu.show();
@@ -172,6 +175,7 @@ export class App {
   startRun() {
     const setup = this.setup;
     if (!setup) return;
+    this.leaderboard?.cancel();
     this.post.hide();
     this.applyTheme(setup.theme);
     this.setScene(
@@ -187,13 +191,16 @@ export class App {
   private finish(timeMs: number) {
     this.ctx.input.enabled = false;
     this.post.show(timeMs);
+    this.leaderboard?.cancel();
+    this.leaderboard = null;
     if (this.setup) {
-      void new LeaderboardView(
+      this.leaderboard = new LeaderboardView(
         this.post.slot,
         this.setup.difficulty,
         timeMs,
         crypto.randomUUID(),
-      ).start();
+      );
+      void this.leaderboard.start();
     }
   }
 

@@ -16,6 +16,8 @@ export const MAX_SESSIONS = 2;
 /** Non-image requests per ingestion inside the browser. */
 export const REQUEST_CAP = 200;
 export const MAX_IN_FLIGHT = 6;
+/** Distinct image URLs kept per session. The image queue later takes the best 150. */
+export const IMAGE_CANDIDATE_CAP = 1000;
 const CLOSE_TIMEOUT_MS = 2000;
 const SETTLE_MS = 1500;
 const SKIPPED_TYPES = new Set(['image', 'media', 'font']);
@@ -39,6 +41,8 @@ export interface HeadlessRunner {
     maxInFlight: number;
     /** Non-image requests of the last session. */
     lastRequests: number;
+    /** Distinct image candidates of the last session. */
+    lastImages: number;
     popupsClosed: number;
   };
 }
@@ -135,6 +139,7 @@ export function createHeadless(opts: HeadlessOptions): HeadlessRunner {
     queued: 0,
     maxInFlight: 0,
     lastRequests: 0,
+    lastImages: 0,
     popupsClosed: 0,
   };
   let browser: Promise<Browser> | null = null;
@@ -172,7 +177,19 @@ export function createHeadless(opts: HeadlessOptions): HeadlessRunner {
   ): Promise<HeadlessResult> {
     const b = await untilAbort(launch(), signal);
     const budget = new ByteBudget();
-    const images: ImageCandidate[] = [];
+    // Deduped and capped as they arrive, so a page that makes image requests without end cannot
+    // grow this. A repeat keeps its highest priority.
+    const images = new Map<string, number>();
+    const addImage = (c: ImageCandidate) => {
+      const prev = images.get(c.url);
+      if (prev !== undefined) images.set(c.url, Math.max(prev, c.priority));
+      else if (images.size < IMAGE_CANDIDATE_CAP) images.set(c.url, c.priority);
+      stats.lastImages = images.size;
+    };
+    const result = (): HeadlessResult => ({
+      imageUrls: [...images].map(([url, priority]) => ({ url, priority })),
+      hosts: [...hosts],
+    });
     const hosts = new Set<string>();
     let currentKind: PageKind = 'home';
     let inFlight = 0;
@@ -210,7 +227,7 @@ export function createHeadless(opts: HeadlessOptions): HeadlessRunner {
         const abort = () => route.abort('blockedbyclient').catch(() => {});
         if (SKIPPED_TYPES.has(req.resourceType())) {
           if (req.resourceType() === 'image')
-            images.push({ url: req.url(), priority: currentKind === 'team' ? 1 : 0 });
+            addImage({ url: req.url(), priority: currentKind === 'team' ? 1 : 0 });
           return abort();
         }
         if (req.method() !== 'GET' || signal.aborted) return abort();
@@ -277,7 +294,7 @@ export function createHeadless(opts: HeadlessOptions): HeadlessRunner {
         );
         const html = await untilAbort(tab.content(), signal);
         const scan = scanHtml(html, tab.url(), kind);
-        images.push(...scan.images);
+        scan.images.forEach(addImage);
         return scan;
       };
 
@@ -289,12 +306,12 @@ export function createHeadless(opts: HeadlessOptions): HeadlessRunner {
         seen.add(p.url);
         await visit(p.url, p.kind);
       }
-      return { imageUrls: images, hosts: [...hosts] };
+      return result();
     } catch (err) {
       // On the deadline, return whatever was found; the pipeline reads it.
-      if (signal.aborted) return { imageUrls: images, hosts: [...hosts] };
-      opts.log.warn({ err: (err as Error).message }, 'headless session failed');
-      return { imageUrls: images, hosts: [...hosts] };
+      if (!signal.aborted)
+        opts.log.warn({ err: (err as Error).message }, 'headless session failed');
+      return result();
     } finally {
       await closeContext();
     }

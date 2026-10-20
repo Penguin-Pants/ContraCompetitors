@@ -110,6 +110,52 @@ test('uploads add to site faces (I-2)', async ({ page }) => {
   );
 });
 
+test('Skip is disabled while an upload is pending, so the run never starts without its faces', async ({
+  page,
+}) => {
+  const uploaded = await makeFaces(page, [140, 150]);
+  let release!: () => void;
+  const held = new Promise<void>((r) => (release = r));
+  await page.route('**/api/faces/upload', async (r) => {
+    await held;
+    return r.fulfill({ json: { faces: uploaded } });
+  });
+  await startRun(page, { ingest: ingestResponse({ faces: [] }) });
+  const dialog = page.getByRole('dialog', { name: 'Add faces' });
+  await page.locator('#face-files').setInputFiles(path.join(PHOTOS, 'gemini7-crew.jpg'));
+  await expect(dialog.getByRole('button', { name: 'Skip' })).toBeDisabled();
+  release();
+  await expect(page.getByTestId('upload-status')).toHaveText('Added 2 faces.');
+  await dialog.getByRole('button', { name: 'Continue' }).click();
+  await enterGame(page);
+  expect((await gameState(page)).scene.faceIds).toEqual(uploaded.map((f) => f.id).sort());
+});
+
+test("a Top 10 answer for an earlier run never replaces the current run's board", async ({
+  page,
+}) => {
+  const pending: Route[] = [];
+  await page.route('**/api/leaderboard/*', (route) => {
+    if (pending.length === 0) {
+      pending.push(route);
+      return;
+    }
+    return route.fulfill({ json: { difficulty: 'easy', rows: fast(10) } });
+  });
+  await startRun(page, { difficulty: 'easy' });
+  await enterGame(page);
+  await finishRun(page);
+  const post = page.getByRole('dialog', { name: 'Run complete' });
+  await post.getByRole('button', { name: 'Play again' }).click();
+  await finishRun(page);
+  await expect(page.getByTestId('board')).toBeVisible();
+  // The first run's request answers late with an empty board (it would qualify).
+  await pending[0]!.fulfill({ json: { difficulty: 'easy', rows: [] } });
+  await page.waitForTimeout(300);
+  await expect(page.getByLabel('Initials')).toHaveCount(0);
+  await expect(page.getByTestId('board')).toBeVisible();
+});
+
 test('partial with 6 faces and 2 colors: upload prompt and a prefilled color picker both show', async ({
   page,
 }) => {

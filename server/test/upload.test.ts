@@ -84,6 +84,13 @@ describe('upload', () => {
     expect((await upload(t.app, files)).status).toBe(400);
   });
 
+  test('detection past the deadline is upload_rejected, not a 500', async () => {
+    t = await ingestApp({ headless: null, ingestionMs: 1000, pool: { testDetectDelayMs: 60_000 } });
+    const [a] = await singleFaces();
+    const r = await upload(t.app, [{ name: 'a.jpg', type: 'image/jpeg', bytes: a! }]);
+    expect([r.status, r.body.error]).toEqual([400, 'upload_rejected']);
+  }, 20_000);
+
   test('20 uploads per IP per hour', async () => {
     t = await ingestApp({ headless: null });
     const txt = [{ name: 'x.txt', type: 'text/plain', bytes: Buffer.from('x') }];

@@ -37,6 +37,17 @@ beforeAll(async () => {
   for (let i = 0; i < 7; i++) site.route(`/hop${i}`, redirect(`/hop${i + 1}`));
   site.route('/hop7', html('end'));
   site.route('/bad-location', redirect('http://[bad'));
+  // Bodies that never end, on answers safeFetch does not read (redirect, error, wrong type).
+  const drip =
+    (status: number, headers: Record<string, string>) =>
+    (_q: unknown, r: import('node:http').ServerResponse) => {
+      r.writeHead(status, headers);
+      const t = setInterval(() => r.write('x'), 50);
+      r.on('close', () => clearInterval(t));
+    };
+  site.route('/drip-redirect', drip(302, { location: '/ok' }));
+  site.route('/drip-404', drip(404, { 'content-type': 'text/html' }));
+  site.route('/drip-type', drip(200, { 'content-type': 'text/css' }));
 });
 
 afterAll(async () => {
@@ -174,6 +185,25 @@ describe('safeFetch', () => {
     expect(
       await code(safeFetch(url('/bad-location'), { kind: 'any', singleHop: true }, policy())),
     ).toBe('unreachable');
+  });
+
+  test('an unread body (redirect, error status, wrong type) is dropped at once, not drained', async () => {
+    const t0 = Date.now();
+    expect(
+      (await safeFetch(url('/drip-redirect'), { kind: 'html' }, policy())).body.toString(),
+    ).toBe('<p>ok</p>');
+    expect(await code(safeFetch(url('/drip-404'), { kind: 'html' }, policy()))).toBe('http_error');
+    expect(await code(safeFetch(url('/drip-type'), { kind: 'html' }, policy()))).toBe('bad_type');
+    expect(Date.now() - t0).toBeLessThan(2000);
+  });
+
+  test('when the first validated address refuses, the next validated address is tried', async () => {
+    const p = policy(
+      { checkIp: (ip) => (ip.startsWith('127.0.0.') ? { allowed: true } : checkAddress(ip)) },
+      { 'dual.test': ['127.0.0.3', '127.0.0.1'] },
+    );
+    const res = await safeFetch(url('/ok', 'dual.test'), { kind: 'html' }, p);
+    expect(res.body.toString()).toBe('<p>ok</p>');
   });
 
   test('single-hop mode returns the 3xx with its location', async () => {

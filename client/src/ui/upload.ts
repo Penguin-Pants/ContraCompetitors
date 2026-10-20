@@ -73,6 +73,8 @@ export class UploadView {
     this.input.value = '';
     if (!files.length) return;
     this.status.textContent = 'Uploading...';
+    // No Skip or new upload until this one is in the face store.
+    this.setBusy(true);
     try {
       const res = await uploadFaces(files);
       await this.onFaces?.(res.faces);
@@ -87,6 +89,13 @@ export class UploadView {
           : code === 'rate_limited'
             ? 'Too many uploads from your network in the last hour. Try again later.'
             : 'Upload failed. Try again.';
+    } finally {
+      this.setBusy(false);
     }
+  }
+
+  private setBusy(busy: boolean) {
+    this.next.disabled = busy;
+    this.input.disabled = busy;
   }
 }

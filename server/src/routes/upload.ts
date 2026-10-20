@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import multipart from '@fastify/multipart';
 import type { UploadResponse } from '@lr/shared/api';
 import type { FaceCrop } from '../faces/crop.ts';
-import { PoolRejected } from '../faces/pool.ts';
+import { PoolRejected, PoolTimeout } from '../faces/pool.ts';
 import { toDto } from '../ingest/faceDto.ts';
 import { MAX_FACES } from '../ingest/images.ts';
 import { sendError } from '../errors.ts';
@@ -64,7 +64,7 @@ export async function uploadRoutes(app: FastifyInstance) {
           `Upload at most ${UPLOAD_MAX_FILES} images.`,
         );
       }
-      if (err instanceof Error && err.name === 'PoolTimeout') {
+      if (err instanceof PoolTimeout) {
         return sendError(reply, 400, 'upload_rejected', 'The images took too long to process.');
       }
       throw err;

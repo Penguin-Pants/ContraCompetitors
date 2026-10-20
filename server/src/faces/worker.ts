@@ -26,9 +26,9 @@ process.on('disconnect', () => process.exit(0));
 const real = await createYunetDetector();
 const detector: Detector = data.testDetectDelayMs
   ? {
-      detect: async (img) => {
+      detect: async (img, scale) => {
         await new Promise((r) => setTimeout(r, data.testDetectDelayMs));
-        return real.detect(img);
+        return real.detect(img, scale);
       },
     }
   : real;
