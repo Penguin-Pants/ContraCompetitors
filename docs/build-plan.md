@@ -906,7 +906,7 @@ Review method per phase: two passes on the full phase diff. Pass 1 checks covera
 | 4 Combat, enemies, pause | ⚠️ Done except manual playtest | Unit: spread symmetry, laser wall stop and pierce, invulnerability, lost life resets weapon, 0 lives full reset, pickups, nested difficulty spawn sets, 2 to 3 briefcases per zone, exit with enemies alive. Combat-bot pacing proxy: Easy 59.8 s, Medium 63.6 s, Hard 67.1 s (unit test guards Medium in 60 to 120 s). E2E: pause freeze 2 s and resume, Restart level, pixel blocks during laser + particles + rotated projectiles. | Manual playtest: 3 Medium runs by a competent human player, times recorded in the PR (agent cannot do this) |
 | 5 Theming, faces, menus | ✅ Done | Unit: readability (derive, separate, adjust, unchanged), tint ramps, assign, quality majority and override with uploads. Integration: meta tags on `GET /`, startup fails on missing or invalid `CONTACT_EMAIL` (incl. `mailto:`) or `SOURCE_URL`. E2E: picker on no colors and HUD accent, Smooth on L2 only, Pixelated on L1 only, Auto choice, face pop, pause has exactly 4 items, Sound mutes (gain 0), audio stays suspended in pause, Main menu, Play again reuses data with no network call, footer and About links, Auto and Medium on reload, Enter starts a run. | Visual review done on placeholder art; repeat in Phase 10 |
 | 6 Leaderboard backend | ✅ Done | Integration: idempotent `submissionId`, 12 submits keep 10 rows fastest first with tie order, initials filter and upper-casing, `timeMs` positive integer (no string coercion), per-difficulty boards, `extreme` gives 400 with no row, data survives restart, no IP or domain column. Unit: initials filter. | None |
-| 7 Secure fetch, blocklist | Not started | | |
+| 7 Secure fetch, blocklist | ✅ Done | Unit: 61-row IP table (every blocked class, embedded IPv4 forms, NAT64, strict address forms, public controls); canonical host forms. Integration (fixture servers on 127.0.0.1 and 127.0.0.2, injected resolver): loopback by name and literal rejected with no connect, mixed DNS answers rejected, redirect to 169.254.169.254 and to a private host rejected at the hop, redirect to a blocklisted host gives `blocked_domain`, DNS rebinding never reaches the private server (fails when the pinned lookup is removed), bad schemes and user info rejected, 2 MB cap streamed and declared, 40 MB budget, 5-redirect limit, single-hop mode, content-type check, abort. Blocklist forms, IDN, CLI. Rate limit 5 per hour, hashed IP, 1,000-IP sweep. Trust proxy hops. | Route-level checks (rate limit with cache hits, nothing cached after a blocked redirect) run in Phase 8 with the ingest route |
 | 8 Ingestion, faces, cache | Not started | | |
 | 9 Client integration | Not started | | |
 | 10 Final art | Not started | | |
@@ -939,6 +939,11 @@ Review method per phase: two passes on the full phase diff. Pass 1 checks covera
 
 - Phase 6: Fastify type coercion is off (`coerceTypes: false`), so `"1000"` is not accepted as `timeMs`. All API errors use `{ error, message }`; schema failures are `bad_request`.
 - Phase 6: a retry of a run that did not place (or was pushed out) inserts again and is pruned again in the same transaction, so the board never shows a duplicate. `rowId` is `null` in that case.
+
+- Phase 7: the IP policy is an allow-list (IPv4 `unicast`, IPv6 `unicast` inside `2000::/3` and outside `2001::/23`). Embedded IPv4 in mapped, compatible, translated, 6to4 and Teredo forms is checked with the IPv4 rule. NAT64 (`64:ff9b::/96`, `64:ff9b:1::/48`) is blocked outright. Only strict address forms parse; anything else fails closed.
+- Phase 7: `rate_events` has a `kind` column so the Phase 8 upload limit (20 per hour) shares the table, the prune and the sweep.
+- Phase 7: `safeFetch` sends no `accept-encoding`, so bodies arrive uncompressed and the byte caps apply to real bytes.
+- Phase 7: `TRUST_PROXY_HOPS` maps to a Fastify trust function (trust the first N hops), because Fastify 5 types have no numeric `trustProxy`.
 
 ### 7.2 Proposed out-of-scope fixes
 

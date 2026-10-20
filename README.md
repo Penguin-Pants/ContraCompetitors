@@ -23,7 +23,8 @@ Requires Node 22 (see `.nvmrc`, at least 22.19). The server runs TypeScript dire
 | `npm test` | Vitest unit and integration tests |
 | `npm run e2e` | Playwright tests. Builds the client and starts the server on port 4173. |
 | `npm run lint` | ESLint and Prettier check |
-| `npm run typecheck` | `tsc` for `shared`, `server` and `client` |
+| `npm run typecheck` | `tsc` for `shared`, `server`, `client` and `e2e` |
+| `npm run blocklist -- add\|remove\|list [domain]` | Manages the domain blocklist in `DATA_DIR` (see `docs/operations.md`) |
 
 ## Environment variables
 
@@ -33,6 +34,7 @@ Requires Node 22 (see `.nvmrc`, at least 22.19). The server runs TypeScript dire
 | `HOST` | `0.0.0.0` | Bind address |
 | `DATA_DIR` | `./data` | Directory for the SQLite database (`app.db`) |
 | `CONTACT_EMAIL` | none, required | Plain takedown address (no `mailto:`), shown in the footer. The server refuses to start without a valid value. |
+| `TRUST_PROXY_HOPS` | `0` | Reverse proxies in front of the server (Railway: `1`), so rate limits see the client IP. |
 | `SOURCE_URL` | none, required | `https` URL of the public source repository (AGPL section 13). Required at startup. |
 
 ## License

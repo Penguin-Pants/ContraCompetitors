@@ -19,7 +19,8 @@
     "e2e": "playwright test",
     "lint": "eslint . && prettier --check .",
     "format": "prettier --write .",
-    "typecheck": "tsc -p shared && tsc -p server && tsc -p client && tsc -p e2e"
+    "typecheck": "tsc -p shared && tsc -p server && tsc -p client && tsc -p e2e",
+    "blocklist": "node --env-file-if-exists=.env server/src/cli/blocklist.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
