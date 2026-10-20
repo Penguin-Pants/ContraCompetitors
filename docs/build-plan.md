@@ -503,7 +503,7 @@ ING-3 to ING-9, SEC-3, SEC-4, C-1, D-2, D-3, E-3, E-7.
   - WebSockets closed via `routeWebSocket`; service workers blocked; WebRTC non-proxied UDP disabled; browser `proxy` set to a dead local port so any request that escapes routing fails;
   - after load, collect rendered image URLs and feed them to `images.ts`;
   - max 2 headless sessions at once; queued requests count against their own 30 s budget.
-- `server/src/cache/faceCache.ts` (ING-9, C-1): key = `canonicalHost` (Phase 7) without a leading `www.`. Files under `${DATA_DIR}/faces/<sha256(key)>/`. Index row `(key, colors_json, created_at)` in migration `004_face_cache.sql`. Cache only complete ingestions (not `partial`). Cache TTL is 23 h for reads (`CACHE_TTL`), so the sweeper interval cannot push any file past 24 h (C-1).
+- `server/src/cache/faceCache.ts` (ING-9, C-1): key = `canonicalHost` (Phase 7), exact. `example.com` and `www.example.com` are separate entries, so cache keys use the same matching rule as the blocklist. Files under `${DATA_DIR}/faces/<sha256(key)>/`. Index row `(key, colors_json, created_at)` in migration `004_face_cache.sql`. Cache only complete ingestions (not `partial`). Cache TTL is 23 h for reads (`CACHE_TTL`), so the sweeper interval cannot push any file past 24 h (C-1).
 - `server/src/cache/sweeper.ts`: at startup and every 10 min, delete entries and files older than `CACHE_TTL` (23 h). Worst-case file lifetime is 23 h 10 min, under the 24 h limit.
 - `server/src/routes/ingest.ts`: order: validate URL, blocklist, cache lookup, rate limit, pipeline. Response type in `shared/src/api.ts`: `{domain, colors: string[], faces: [{id, dataUrl, width, height}], partial, source: "cache" | "static" | "headless"}`.
 - `server/src/routes/upload.ts` (ING-7, D-2): `POST /api/faces/upload`, multipart, max 10 files, 5 MB each. Same decode, detect and crop path. Processed in memory. Never written to disk or cache. Returns face crops in the same shape. Light abuse limit: 20 upload requests per IP per hour.
@@ -512,6 +512,7 @@ ING-3 to ING-9, SEC-3, SEC-4, C-1, D-2, D-3, E-3, E-7.
 - Faces go to the client as data URLs in the JSON response. No public face URLs exist, so no extra access-control surface.
 - Never store or log names, alt text, captions, file names or page URLs with faces (SEC-4). Logs hold the domain, counts and timings only.
 - `blocklist add` calls `faceCache.purge(domain)` (C-1, SEC-5 takedown).
+- `faceCache.purge(entry)` deletes every key that equals `entry` or ends with `.` + `entry` (the blocklist matching rule). Test: cache `example.com` and `www.example.com`; `blocklist add example.com` deletes both; `blocklist add www.example.com` deletes only `www.example.com`.
 - Blocklist race: the cache write and a fresh blocklist check run in one SQLite transaction. If the domain became blocklisted during the pipeline, nothing is cached and the request returns `blocked_domain`. Test: block the domain while a fixture pipeline is in flight; assert no cache files and a `blocked_domain` response.
 - Verify the YuNet model license file and commit it next to the model in `server/models/`.
 
@@ -853,6 +854,7 @@ No unresolved product decisions remain.
 | Timer start undefined in the spec | Owner decision Q-4: first gameplay key press |
 | `CONTACT_EMAIL` form ambiguous (`mailto:mailto:` risk) | Plain address only; client adds the scheme |
 | Leaderboard accepted any `:difficulty` | Enum validation, 400 before DB access |
+| Cache merged `www.` and bare host but blocklist did not, so a purge could miss entries | Owner decision: exact `canonicalHost` cache key; purge uses the blocklist matching rule |
 | `user_version` runner would skip `001` if Phase 7 landed before Phase 6 | Runner tracks applied file names; late files still apply |
 | Migration SQL and its record could commit separately | Same transaction; crash-boundary test |
 | `Difficulty` type-only union has no runtime values for the schema enum | Runtime `DIFFICULTIES` array; type derived from it |
