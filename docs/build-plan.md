@@ -1,6 +1,6 @@
 # Logistics Run: Build Plan
 
-**Source of truth:** `logistics-run-requirements.md` (v2, "Decision-complete").
+**Source of truth:** [`docs/requirements/logistics-run-requirements.md`](requirements/logistics-run-requirements.md) (v2, "Decision-complete").
 **Status:** Ready for implementation. No open product blockers.
 **Scope:** Plan only. No code is in this commit.
 
@@ -219,6 +219,7 @@ DEL-3, RND-1, RND-2, RND-3, RND-6 (code-drawn path), CTL-1, CTL-2, E-12.
 - `client/src/engine/loop.ts`: fixed 60 Hz update, render on `requestAnimationFrame`, frame delta clamp.
 - `client/src/engine/input.ts`: map `KeyboardEvent.code` (`KeyA`, `KeyD`, `KeyW`, `KeyS`, `Space`, `Escape`). Ignore arrow keys. `preventDefault` on Space. Clear held keys on window `blur`.
 - `client/src/ui/narrowGuard.ts`: when viewport width < 960 CSS px, show "Make the window wider to play" and freeze the game (same freeze as pause).
+- `client/src/assets/manifest.ts`: sprite contract used by placeholder art now and by Phase 10 art later. Headless bodies, one head anchor point per frame, enemy clothing in a reserved neutral gray ramp, player highlight in a second reserved ramp, frame lists per animation.
 - Desktop-only: no touch handlers. No mobile layout work.
 
 **Implementation notes**
@@ -368,7 +369,7 @@ DEL-4, ING-1 (menu UI), ING-2, THM-1 to THM-8, RND-4 (face pop), ENM-3, PAU-3 (a
 - All UI text is English (D-1).
 
 **Implementation notes**
-- Sprite contract (needed by Phase 10 art): headless bodies, one head anchor point per frame, enemy clothing in a reserved neutral gray ramp, player highlight in a second reserved ramp. Define it in `client/src/assets/manifest.ts` now. Placeholder art follows it.
+- The sprite contract is defined in Phase 2 (`client/src/assets/manifest.ts`). `tint.ts` and `faceLayer.ts` read the reserved ramps and head anchors from it.
 - Quality check uses device pixels (`css px * devicePixelRatio`) so Smooth is chosen only when the source is sharp enough.
 - Face style decision is fixed for the run. A resize mid-run does not switch styles.
 
@@ -405,7 +406,8 @@ LB-1, LB-2, LB-4, C-2.
 - `shared/src/initials.ts`: `/^[A-Za-z]{3}$/`, normalize to upper case.
 - `server/src/routes/leaderboard.ts`:
   - `GET /api/leaderboard/:difficulty` returns Top 10 ordered by `time_ms` asc, then `created_at` asc.
-  - `POST /api/leaderboard/:difficulty` body `{initials, timeMs}`. Checks: initials filter; `timeMs` is a positive integer (needed to store the value). No other checks (LB-4, C-2). Returns the new Top 10 and the new row id.
+  - `POST /api/leaderboard/:difficulty` body `{initials, timeMs}`. Checks: initials filter; `timeMs` is a positive integer (needed to store the value). No other checks (LB-4, C-2). Returns the new Top 10 and the new row id (or `null` if the row did not place).
+  - Bounded storage: in one transaction, insert the row, then delete every row for that difficulty outside the Top 10. The table never holds more than 30 rows.
 - All sites share one board per difficulty (no domain column).
 
 **Implementation notes**
@@ -413,7 +415,7 @@ LB-1, LB-2, LB-4, C-2.
 - Store no IP and no domain with scores.
 
 **Tests**
-- Integration: 12 submits on `medium` return 10 rows, fastest first; ties order by submit time.
+- Integration: 12 submits on `medium` return 10 rows, fastest first; ties order by submit time; the table holds exactly 10 `medium` rows after the 12th submit.
 - Integration: `"AB"`, `"ABCD"`, `"A1C"` give 400; `"abc"` is stored as `ABC`.
 - Integration: boards are separate per difficulty.
 - Integration: data survives app restart on the same `DATA_DIR`.
@@ -486,14 +488,14 @@ ING-3 to ING-9, SEC-3, SEC-4, C-1, D-2, D-3, E-3, E-7.
 - `server/src/ingest/crawl.ts` (ING-4): from the homepage, follow same-site links whose path or text matches team, about, leadership, people, company, and up to N blog post links. Max 12 pages. Collect `<img>` (`src`, `srcset` largest), author images on blog posts (`.author img`, `[rel=author] img`, schema.org `author.image`).
 - `server/src/ingest/images.ts`: fetch candidates through `safeFetch`, decode with `sharp` (`limitInputPixels` 25 MP). Accept JPEG, PNG, WebP, GIF (first frame) only. Discard SVG, non-images, decode failures and oversize (E-7).
 - `server/src/faces/detector.ts`: YuNet via `onnxruntime-node`, confidence threshold ~0.8, min face width 40 px.
-- `server/src/faces/crop.ts` (ING-5): crop to the detected face box only. Output PNG with no metadata. Max 30 faces per domain. Deduplicate exact repeats by content hash.
+- `server/src/faces/crop.ts` (ING-5): crop to the detected face box only. Downscale so the longest side is at most 256 px (the largest on-screen head at k=4 and DPR 2). Encode PNG with no metadata; reject any crop over 150 KB encoded. The reported `width` is the width after the cap, which still passes D-5 for every reachable on-screen size. Max 30 faces per domain. Deduplicate exact repeats by content hash.
 - `server/src/ingest/headless.ts` (ING-6): if static faces < 5 and budget remains, load the same pages in Playwright Chromium:
   - every request goes through `page.route` and is fulfilled by `safeFetch` (so SSRF rules apply to the browser too);
   - WebSockets closed via `routeWebSocket`; service workers blocked; WebRTC non-proxied UDP disabled; browser `proxy` set to a dead local port so any request that escapes routing fails;
   - after load, collect rendered image URLs and feed them to `images.ts`;
   - max 2 headless sessions at once; queued requests count against their own 30 s budget.
-- `server/src/cache/faceCache.ts` (ING-9, C-1): key = lowercase hostname without `www.`. Files under `${DATA_DIR}/faces/<sha256(key)>/`. Index row `(key, colors_json, created_at)`. Cache only complete ingestions (not `partial`). Hits younger than 24 h return directly.
-- `server/src/cache/sweeper.ts`: at startup and every 10 min, delete entries and files older than 24 h.
+- `server/src/cache/faceCache.ts` (ING-9, C-1): key = lowercase hostname without `www.`. Files under `${DATA_DIR}/faces/<sha256(key)>/`. Index row `(key, colors_json, created_at)`. Cache only complete ingestions (not `partial`). Cache TTL is 23 h for reads (`CACHE_TTL`), so the sweeper interval cannot push any file past 24 h (C-1).
+- `server/src/cache/sweeper.ts`: at startup and every 10 min, delete entries and files older than `CACHE_TTL` (23 h). Worst-case file lifetime is 23 h 10 min, under the 24 h limit.
 - `server/src/routes/ingest.ts`: order: validate URL, blocklist, cache lookup, rate limit, pipeline. Response type in `shared/src/api.ts`: `{domain, colors: string[], faces: [{id, dataUrl, width, height}], partial, source: "cache" | "static" | "headless"}`.
 - `server/src/routes/upload.ts` (ING-7, D-2): `POST /api/faces/upload`, multipart, max 10 files, 5 MB each. Same decode, detect and crop path. Processed in memory. Never written to disk or cache. Returns face crops in the same shape. Light abuse limit: 20 upload requests per IP per hour.
 
@@ -501,6 +503,7 @@ ING-3 to ING-9, SEC-3, SEC-4, C-1, D-2, D-3, E-3, E-7.
 - Faces go to the client as data URLs in the JSON response. No public face URLs exist, so no extra access-control surface.
 - Never store or log names, alt text, captions, file names or page URLs with faces (SEC-4). Logs hold the domain, counts and timings only.
 - `blocklist add` calls `faceCache.purge(domain)` (C-1, SEC-5 takedown).
+- Blocklist race: the cache write and a fresh blocklist check run in one SQLite transaction. If the domain became blocklisted during the pipeline, nothing is cached and the request returns `blocked_domain`. Test: block the domain while a fixture pipeline is in flight; assert no cache files and a `blocked_domain` response.
 - Verify the YuNet model license file and commit it next to the model in `server/models/`.
 
 **Tests**
@@ -513,7 +516,7 @@ ING-3 to ING-9, SEC-3, SEC-4, C-1, D-2, D-3, E-3, E-7.
   - site that stalls: response by 30 s + small margin with `partial: true` and whatever was found;
   - SVG, HTML-as-image, 8 MB image are discarded;
   - second request within 24 h: `source: "cache"`, no rate-limit slot used;
-  - sweeper with clock +24 h 1 min deletes files and index row.
+  - sweeper with clock +23 h 1 min deletes files and index row; no file older than 23 h 10 min exists in a simulated 48 h run with entries created at random times.
 - Integration upload: 2 JPEGs with faces return 2 crops; nothing appears under `DATA_DIR`; a text file is rejected.
 - Headless SSRF: fixture page that loads `http://127.0.0.1/secret` via `<img>` and `fetch()` never reaches the loopback server.
 
@@ -540,8 +543,8 @@ SUC-1, ING-1, ING-7, LB-2, LB-3, LB-4, LB-5, E-1, E-2, E-3, E-4, E-5, E-6, E-8, 
 - `client/src/ui/errors.ts`:
   - `invalid_url`, `unreachable`, `blocked_domain`: error text + Retry + Upload faces manually (E-1, E-2 generic text). Manual path has no colors, so the color picker opens (D-3).
   - `rate_limited`: message only, ingestion not started (E-4).
-- `client/src/ui/upload.ts`: shown when faces < 5 after ingestion (including `partial`). Upload (merge with site faces, I-2) or Skip (reuse faces; zero faces gives placeholders, E-8).
-- Color flow: 0 colors opens picker (E-5); 1 color or unreadable colors auto-adjust (E-6).
+- `client/src/ui/upload.ts`: shown when faces < 5, and always when `partial` is true (D-3). Upload (merge with site faces, I-2) or Skip (reuse faces; zero faces gives placeholders, E-8).
+- Color flow: 0 colors opens picker (E-5); 1 color or unreadable colors auto-adjust (E-6). When `partial` is true, the picker always opens, prefilled with any found (auto-adjusted) colors, so the user can confirm or change them (D-3).
 - `client/src/ui/leaderboard.ts` in post-game:
   - fetch Top 10 for the run difficulty;
   - if fewer than 10 rows or time < 10th time, ask for 3 initials (filter from `shared/initials.ts`), else show the board only (LB-3);
@@ -556,6 +559,7 @@ SUC-1, ING-1, ING-7, LB-2, LB-3, LB-4, LB-5, E-1, E-2, E-3, E-4, E-5, E-6, E-8, 
 - E2E with mocked API routes (Playwright `page.route`):
   - happy path: ingest 6 faces + 2 colors, play scripted run, qualify, enter `jmd`, board shows `JMD`;
   - 3 faces: upload prompt shows; Skip starts run with reused faces;
+  - `partial: true` with 6 faces and 2 colors: upload prompt and prefilled color picker both show (D-3);
   - 0 faces + Skip: placeholder heads;
   - `rate_limited`: message, no run start;
   - `blocked_domain`: error with Retry and manual upload; manual upload path opens color picker;
@@ -610,7 +614,7 @@ RND-5, RND-6, RND-7, THM-3 (bobble-head bodies), ENM-2, C-3.
 - Tests pass.
 
 **Dependencies**
-Phase 2 (contract from Phase 5 required before final post-processing). Can run in parallel with Phases 6 to 9.
+Phase 2 (defines the sprite contract in `client/src/assets/manifest.ts`). Can run in parallel with Phases 3 to 9.
 
 ---
 
@@ -623,13 +627,15 @@ The game runs publicly on Railway with persistent storage, documented operations
 DEL-1, DEL-2, SEC-5 (process), C-4, AGPL compliance (repo evidence, section 0.1).
 
 **Changes**
-- `Dockerfile`: base `mcr.microsoft.com/playwright:<pinned version>` (Chromium included), build client and server, run server.
+- `Dockerfile`: base `mcr.microsoft.com/playwright:<pinned version>` (Chromium included), build client and server, run server as the non-root `pwuser` (never root).
+- Chromium hardening (Playwright Docker guidance for crawling): launch with `chromiumSandbox: true` and never pass `--no-sandbox`. Apply the Playwright seccomp profile where the host allows it. If Railway cannot run the sandbox, move headless rendering to a separate Railway service with no volume and no secrets, called over the private network. Do not ship headless retry without one of these two setups.
+- Test: CI starts the image, asserts the server process UID is not 0, and launches Chromium with the sandbox on (launch fails if the sandbox is not available).
 - Railway: one service, one volume mounted at `DATA_DIR`. Env vars: `PORT`, `DATA_DIR`, `CONTACT_EMAIL`, `TRUST_PROXY_HOPS`, `SOURCE_URL`.
 - Footer and About view: add "Source code" link to `sourceUrl` from `/api/config` (AGPL section 13).
 - Production smoke test: footer takedown link and Source code link resolve to the configured `CONTACT_EMAIL` and `SOURCE_URL`.
 - `docs/operations.md`: blocklist CLI, takedown handling (add to blocklist, which purges cache), cache lifetime, rate limits, logs policy (no face metadata).
 - `docs/architecture.md`: layer stack, data flow, security model.
-- `docs/launch-checklist.md`: read Sprite Fusion terms for generated asset use (C-4); confirm YuNet license; confirm all dependency licenses are AGPL-compatible; smoke test SUC-1 on production.
+- `docs/launch-checklist.md`: read Sprite Fusion terms for generated asset use (C-4); confirm YuNet license; confirm all dependency licenses are AGPL-compatible; confirm the Chromium sandbox runs on the production host (or the isolated headless service is in use); smoke test SUC-1 on production.
 - README: deploy section.
 
 **Implementation notes**
@@ -816,3 +822,18 @@ No unresolved product decisions remain.
 | Considered port restriction to 80 and 443 | Removed. Spec allows any public URL; IP policy is the control |
 | Considered sound toggle on main menu | Removed. Pause toggle meets DEL-4 and D-6 |
 | Upload endpoint abuse limit is not in spec | Kept as a security control (CPU cost of detection), documented in Phase 8 |
+
+**PR review round (CodeRabbit and Codex)**
+
+| Finding | Fix applied |
+|---|---|
+| Short viewport gave k=0 | `k = max(1, ...)`; 960 x 539 test |
+| Footer config could not reach static files | `GET /api/config`; About is a client view |
+| 10 min sweeper could exceed 24 h | Read TTL 23 h; worst case 23 h 10 min |
+| Leaderboard table unbounded | Prune to Top 10 per difficulty in the insert transaction |
+| Face crops unbounded | 256 px longest side, 150 KB cap |
+| Sprite contract defined after Phase 10 could start | Contract moved to Phase 2 |
+| Timed-out ingestion could skip D-3 fallbacks | `partial` always shows upload and prefilled picker |
+| Chromium ran as root without sandbox | Non-root user, sandbox on, or isolated headless service |
+| Blocklist add during in-flight ingestion | Blocklist recheck in the cache-write transaction |
+| Requirements file not in repo | Committed at `docs/requirements/` |
