@@ -59,6 +59,12 @@ export class ByteBudget {
     if (this.used > this.limit)
       throw new FetchError('too_large', `ingestion budget over ${this.limit} bytes`);
   }
+
+  /** Throws when nothing is left, so a spent budget opens no new connection. */
+  check() {
+    if (this.used >= this.limit)
+      throw new FetchError('too_large', `ingestion budget of ${this.limit} bytes spent`);
+  }
 }
 
 export interface SafeFetchOptions {
@@ -188,6 +194,7 @@ export async function safeFetch(
   let current: string | URL = raw;
   for (let hop = 0; ; hop++) {
     throwIfAborted(opts.signal);
+    opts.budget?.check();
     const target = await validateTarget(current, policy, opts.signal);
     hosts.push(target.host);
     const agent = pinnedAgent(target.addresses);

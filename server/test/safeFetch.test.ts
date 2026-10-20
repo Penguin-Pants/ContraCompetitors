@@ -172,6 +172,14 @@ describe('safeFetch', () => {
     expect(await code(safeFetch(url('/ok'), { kind: 'html', budget }, policy()))).toBe('too_large');
   });
 
+  test('a spent byte budget refuses the next fetch before it connects', async () => {
+    const budget = new ByteBudget(100);
+    budget.used = 100;
+    const before = site.hits.length;
+    expect(await code(safeFetch(url('/ok'), { kind: 'html', budget }, policy()))).toBe('too_large');
+    expect(site.hits.length).toBe(before);
+  });
+
   test('5 redirects are followed; the 6th is rejected', async () => {
     const res = await safeFetch(url('/hop2'), { kind: 'html' }, policy());
     expect(res.body.toString()).toBe('end');

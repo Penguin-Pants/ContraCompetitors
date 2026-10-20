@@ -143,8 +143,9 @@ export function createHeadless(opts: HeadlessOptions): HeadlessRunner {
   };
   let browser: Promise<Browser> | null = null;
 
-  const launch = () =>
-    (browser ??= chromium
+  const launch = () => {
+    if (browser) return browser;
+    const launched = chromium
       .launch({
         chromiumSandbox: opts.sandbox ?? true,
         // Any request that escapes routing goes to a dead local port and fails.
@@ -154,10 +155,20 @@ export function createHeadless(opts: HeadlessOptions): HeadlessRunner {
           '--webrtc-ip-handling-policy=disable_non_proxied_udp',
         ],
       })
+      .then((b) => {
+        // A browser that dies between sessions must not stay cached, or every later retry fails.
+        b.on('disconnected', () => {
+          if (browser === launched) browser = null;
+        });
+        return b;
+      })
       .catch((err) => {
         browser = null;
         throw err;
-      }));
+      });
+    browser = launched;
+    return launched;
+  };
 
   const relaunch = async () => {
     const b = browser;

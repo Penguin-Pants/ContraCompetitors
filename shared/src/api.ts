@@ -33,6 +33,7 @@ export const API_ERROR_CODES = [
   'bad_request',
   'not_found',
   'upload_rejected',
+  'busy',
   'internal',
 ] as const;
 

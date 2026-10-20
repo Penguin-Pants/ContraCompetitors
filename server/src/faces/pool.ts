@@ -9,11 +9,16 @@ export class PoolTimeout extends Error {
 export class PoolRejected extends Error {
   override name = 'PoolRejected';
 }
+export class PoolBusy extends Error {
+  override name = 'PoolBusy';
+}
+/** Jobs that may wait for a worker. Each holds an image of up to 5 MB, so this bounds memory. */
+export const MAX_QUEUED = 16;
 
 interface Pending {
   job: WorkerJob;
-  timeoutMs: number;
-  signal?: AbortSignal;
+  /** Started when the job is submitted, so time in the queue counts toward the deadline. */
+  timer: NodeJS.Timeout | null;
   resolve: (crops: FaceCrop[]) => void;
   reject: (err: Error) => void;
 }
@@ -22,7 +27,6 @@ interface Slot {
   worker: ChildProcess;
   ready: Promise<void>;
   busy: Pending | null;
-  timer: NodeJS.Timeout | null;
 }
 
 export interface PoolOptions {
@@ -67,7 +71,7 @@ export class FacePool {
         stdio: ['ignore', 'inherit', 'inherit', 'ipc'],
       },
     );
-    const slot: Slot = { worker, busy: null, timer: null, ready: Promise.resolve() };
+    const slot: Slot = { worker, busy: null, ready: Promise.resolve() };
     slot.ready = new Promise((resolve, reject) => {
       worker.once('exit', () => reject(new Error('face worker exited')));
       worker.on('message', (m: WorkerReply | { ready: true }) => {
@@ -88,8 +92,6 @@ export class FacePool {
 
   /** SIGKILL: the worker may be inside native code that does not see a soft signal. */
   private kill(slot: Slot) {
-    if (slot.timer) clearTimeout(slot.timer);
-    slot.timer = null;
     slot.worker.removeAllListeners('exit');
     slot.worker.removeAllListeners('error');
     slot.worker.on('error', () => {});
@@ -99,9 +101,8 @@ export class FacePool {
   private finish(slot: Slot, reply: WorkerReply) {
     const p = slot.busy;
     if (!p || p.job.id !== reply.id) return;
-    if (slot.timer) clearTimeout(slot.timer);
     slot.busy = null;
-    slot.timer = null;
+    this.settle(p);
     if (reply.ok) {
       p.resolve(reply.crops.map((c) => ({ ...c, png: Buffer.from(c.png) })));
     } else {
@@ -115,7 +116,10 @@ export class FacePool {
     const p = slot.busy;
     slot.busy = null;
     this.replace(slot);
-    p?.reject(err);
+    if (p) {
+      this.settle(p);
+      p.reject(err);
+    }
     this.pump();
   }
 
@@ -133,13 +137,6 @@ export class FacePool {
       const next = this.queue.shift();
       if (!next) return;
       slot.busy = next;
-      slot.timer = setTimeout(() => {
-        if (slot.busy !== next) return;
-        slot.busy = null;
-        this.replace(slot);
-        next.reject(new PoolTimeout('face job deadline'));
-        this.pump();
-      }, next.timeoutMs);
       void slot.ready.then(
         () => slot.busy === next && slot.worker.send(next.job),
         () => {},
@@ -147,28 +144,33 @@ export class FacePool {
     }
   }
 
+  private settle(p: Pending) {
+    if (p.timer) clearTimeout(p.timer);
+    p.timer = null;
+  }
+
   /**
-   * Runs one image. Rejects with PoolTimeout at `timeoutMs` and PoolRejected for invalid images.
-   * When `signal` aborts, a queued job is dropped and a running job's worker is terminated.
+   * Runs one image. Rejects with PoolTimeout at `timeoutMs` (queue wait included), PoolRejected
+   * for invalid images and PoolBusy when MAX_QUEUED jobs already wait. When `signal` aborts, a
+   * queued job is dropped and a running job's worker is terminated.
    */
   process(bytes: Uint8Array, timeoutMs: number, signal?: AbortSignal): Promise<FaceCrop[]> {
     if (this.closed) return Promise.reject(new Error('pool closed'));
     if (timeoutMs <= 0 || signal?.aborted) return Promise.reject(new PoolTimeout('no time left'));
+    if (this.queue.length >= MAX_QUEUED) return Promise.reject(new PoolBusy('face queue full'));
     return new Promise((resolve, reject) => {
-      const pending: Pending = {
-        job: { id: this.nextId++, bytes },
-        timeoutMs,
-        signal,
-        resolve,
-        reject,
-      };
-      signal?.addEventListener('abort', () => this.cancel(pending), { once: true });
+      const pending: Pending = { job: { id: this.nextId++, bytes }, timer: null, resolve, reject };
+      pending.timer = setTimeout(() => this.cancel(pending, 'face job deadline'), timeoutMs);
+      signal?.addEventListener('abort', () => this.cancel(pending, 'ingestion deadline'), {
+        once: true,
+      });
       this.queue.push(pending);
       this.pump();
     });
   }
 
-  private cancel(p: Pending) {
+  /** Drops a queued job, or kills the worker of a running one, and rejects it with PoolTimeout. */
+  private cancel(p: Pending, reason: string) {
     const queued = this.queue.indexOf(p);
     if (queued >= 0) this.queue.splice(queued, 1);
     const slot = this.slots.find((s) => s.busy === p);
@@ -177,7 +179,8 @@ export class FacePool {
       this.replace(slot);
     }
     if (queued >= 0 || slot) {
-      p.reject(new PoolTimeout('ingestion deadline'));
+      this.settle(p);
+      p.reject(new PoolTimeout(reason));
       // After every abort listener of this signal has run, so no aborted job starts.
       queueMicrotask(() => this.pump());
     }
@@ -186,12 +189,18 @@ export class FacePool {
   /** Rejects queued and running jobs and kills every worker. */
   async close() {
     this.closed = true;
-    for (const p of this.queue.splice(0)) p.reject(new Error('pool closed'));
+    for (const p of this.queue.splice(0)) {
+      this.settle(p);
+      p.reject(new Error('pool closed'));
+    }
     const slots = this.slots.splice(0);
     await Promise.all(
       slots.map((slot) => {
         this.kill(slot);
-        slot.busy?.reject(new Error('pool closed'));
+        if (slot.busy) {
+          this.settle(slot.busy);
+          slot.busy.reject(new Error('pool closed'));
+        }
         slot.busy = null;
         if (slot.worker.exitCode !== null || slot.worker.signalCode !== null) return;
         // Held, so a close waits for the exit even with nothing else in the event loop.

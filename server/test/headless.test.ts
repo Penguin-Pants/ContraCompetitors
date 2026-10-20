@@ -29,6 +29,22 @@ beforeAll(async () => {
     r.setHeader('content-type', 'text/html');
     r.end(page(`<script>document.body.insertAdjacentHTML('beforeend', ${imgs(3)});</script>`));
   });
+  byHost.set('js2.test', byHost.get('js.test')!);
+  byHost.set('cors.test', (_q, r) => {
+    r.setHeader('content-type', 'text/html');
+    r.end(
+      page(`<script>
+        fetch('http://api.cors.test:${f.port}/api/team.json').then((x) => x.json()).then((list) => {
+          for (const u of list) document.body.insertAdjacentHTML('beforeend', '<img src="' + u + '">');
+        });
+      </script>`),
+    );
+  });
+  byHost.set('api.cors.test', (_q, r) => {
+    r.setHeader('content-type', 'application/json');
+    r.setHeader('access-control-allow-origin', '*');
+    r.end(JSON.stringify(['a', 'b', 'c'].map((n) => `http://cors.test:${f.port}/${n}.jpg`)));
+  });
   byHost.set('spa.test', (req, r) => {
     r.setHeader('content-type', 'text/html');
     if (req.url === '/team')
@@ -104,6 +120,7 @@ beforeAll(async () => {
     '/team',
     '/app/',
     '/app/main.js',
+    '/api/team.json',
     ...Array.from({ length: 8 }, (_, i) => `/r${i}`),
   ]) {
     f.route(p, dispatch);
@@ -126,6 +143,29 @@ describe('headless retry', () => {
     expect(r.body.source).toBe('headless');
     expect(r.body.faces).toHaveLength(6);
   }, 40_000);
+
+  test('a cross-origin API answer keeps its CORS header, so the rendered team content appears', async () => {
+    const r = await t.ingest(site(f, 'cors.test'), '203.0.113.11');
+    expect(r.body.source).toBe('headless');
+    expect(r.body.faces).toHaveLength(6);
+  }, 40_000);
+
+  test('after Chromium dies while idle, the next headless retry launches a new browser', async () => {
+    expect((await t.ingest(site(f, 'js.test'), '203.0.113.12')).body.faces).toHaveLength(6);
+    // Kill this process's Chromium children (the browser the runner keeps between sessions).
+    const { execFileSync } = await import('node:child_process');
+    const kids = execFileSync('ps', ['-o', 'pid=,comm=', '--ppid', String(process.pid)])
+      .toString()
+      .split('\n')
+      .filter((l) => /chrom|headless_shell/i.test(l))
+      .map((l) => Number(l.trim().split(/\s+/)[0]));
+    expect(kids.length).toBeGreaterThan(0);
+    for (const pid of kids) process.kill(pid, 'SIGKILL');
+    await new Promise((res) => setTimeout(res, 500));
+    const r = await t.ingest(site(f, 'js2.test'), '203.0.113.13');
+    expect(r.body.source).toBe('headless');
+    expect(r.body.faces).toHaveLength(6);
+  }, 60_000);
 
   test('SPA whose /team link exists only after JavaScript: headless finds it and returns the faces', async () => {
     const r = await t.ingest(site(f, 'spa.test'), '203.0.113.2');

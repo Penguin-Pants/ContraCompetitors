@@ -113,11 +113,14 @@ export async function runPipeline(
     detect: (bytes: Uint8Array) => deps.detect(bytes, signal),
   };
   await collectFaces(prioritize(images.list(), acc.tried), stage, acc, signal);
-  if (acc.faces.size >= MIN_FACES || !deps.headless || signal.aborted) return { source: 'static' };
+  // The headless homepage load counts as a page too, so no pages left means no retry.
+  const pagesLeft = MAX_PAGES - acc.stats.pages;
+  if (acc.faces.size >= MIN_FACES || !deps.headless || signal.aborted || pagesLeft < 1)
+    return { source: 'static' };
 
   // ING-6: headless retry for JavaScript-rendered sites.
   acc.stats.headless = true;
-  const rendered = await deps.headless(url, MAX_PAGES - acc.stats.pages + 1, signal, budget);
+  const rendered = await deps.headless(url, pagesLeft, signal, budget);
   for (const h of rendered.hosts) acc.sourceHosts.add(h);
   await collectFaces(prioritize(rendered.imageUrls, acc.tried), stage, acc, signal);
   return { source: 'headless' };

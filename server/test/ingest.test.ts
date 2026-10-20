@@ -129,11 +129,13 @@ describe('ingest: static path', () => {
     expect(body.faces).toHaveLength(2);
   });
 
-  test('the headless retry charges the same byte budget as the static crawl', async () => {
+  test('the headless retry charges the same byte budget and shares the 12-page cap', async () => {
     let usedAtStart = -1;
     let limit = -1;
+    let pagesLeft = -1;
     t = await ingestApp({
-      headless: async (_url, _pages, _signal, budget) => {
+      headless: async (_url, pages, _signal, budget) => {
+        pagesLeft = pages;
         usedAtStart = budget.used;
         limit = budget.limit;
         return { imageUrls: [], hosts: [] };
@@ -143,6 +145,8 @@ describe('ingest: static path', () => {
     // The static crawl already charged the homepage, CSS, team page and the decoded images.
     expect(usedAtStart).toBeGreaterThan(50_000);
     expect(limit).toBe(40 * 1024 * 1024);
+    // Static read the homepage and /team: 10 left, and the headless homepage load is one of them.
+    expect(pagesLeft).toBe(10);
   });
 
   test('invalid, internal and blocklisted URLs; invalid URLs and blocked domains use no slot', async () => {

@@ -12,7 +12,7 @@ import {
   processImage,
 } from '../src/faces/crop.ts';
 import { createYunetDetector, type Detector } from '../src/faces/detector.ts';
-import { FacePool, PoolRejected, PoolTimeout } from '../src/faces/pool.ts';
+import { FacePool, MAX_QUEUED, PoolBusy, PoolRejected, PoolTimeout } from '../src/faces/pool.ts';
 
 const PHOTOS = path.join(import.meta.dirname, 'fixtures/photos');
 const photo = (name: string) => fs.readFileSync(path.join(PHOTOS, name));
@@ -123,6 +123,28 @@ describe('FacePool', () => {
     expect(Date.now() - t0).toBeLessThan(5000);
     expect(pool.started).toBe(started + 1);
     await pool.close();
+  });
+});
+
+describe('FacePool limits', () => {
+  test('a full queue rejects new jobs at once with PoolBusy, so memory stays bounded', async () => {
+    const pool = new FacePool({ size: 1, testDetectDelayMs: 60_000 });
+    const held = Array.from({ length: MAX_QUEUED + 1 }, () =>
+      pool.process(photo('gemini7-crew.jpg'), 60_000).catch(() => {}),
+    );
+    await expect(pool.process(photo('gemini7-crew.jpg'), 60_000)).rejects.toThrow(PoolBusy);
+    await pool.close();
+    await Promise.all(held);
+  });
+
+  test('time in the queue counts toward the job deadline', async () => {
+    const pool = new FacePool({ size: 1, testDetectDelayMs: 3000 });
+    const first = pool.process(photo('gemini7-crew.jpg'), 10_000).catch(() => {});
+    const t0 = Date.now();
+    await expect(pool.process(photo('gemini7-crew.jpg'), 500)).rejects.toThrow(PoolTimeout);
+    expect(Date.now() - t0).toBeLessThan(1500);
+    await pool.close();
+    await first;
   });
 });
 

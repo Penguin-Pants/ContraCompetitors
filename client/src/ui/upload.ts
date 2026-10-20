@@ -88,7 +88,9 @@ export class UploadView {
           ? 'Those files could not be used. Use JPEG, PNG, WebP or GIF photos up to 5 MB.'
           : code === 'rate_limited'
             ? 'Too many uploads from your network in the last hour. Try again later.'
-            : 'Upload failed. Try again.';
+            : code === 'busy'
+              ? 'The server is busy. Try again in a minute.'
+              : 'Upload failed. Try again.';
     } finally {
       this.setBusy(false);
     }
