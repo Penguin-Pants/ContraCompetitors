@@ -128,7 +128,7 @@ server/src/
   net/       safeFetch.ts  ipPolicy.ts  limits.ts
   ingest/    pipeline.ts  colors.ts  crawl.ts  headless.ts  images.ts
   faces/     detector.ts  crop.ts
-  cache/     faceCache.ts  sweeper.ts
+  cache/     faceCache.ts  sweeper.ts  (in memory, no disk)
   routes/    ingest.ts  upload.ts  leaderboard.ts  health.ts  indexHtml.ts
   policy/    blocklist.ts  rateLimit.ts
   cli/       blocklist.ts
@@ -182,7 +182,7 @@ DEL-1 (foundation only).
 - Create root `package.json` (workspaces `client`, `server`, `shared`), `tsconfig.base.json`, ESLint + Prettier config, `.gitignore`, `.nvmrc` (Node 22).
 - Create `shared/src/difficulty.ts`: runtime array `DIFFICULTIES = ['easy', 'medium', 'hard'] as const` and `type Difficulty = typeof DIFFICULTIES[number]`. Server route schemas and client menus import the array, so the values exist at runtime.
 - Create `server/src/app.ts` (Fastify factory, injectable config for tests), `server/src/index.ts`, `routes/health.ts` (`GET /api/health`).
-- Create `server/src/db/db.ts`: SQLite at `${DATA_DIR}/app.db` (`better-sqlite3`) and a migration runner (SQL files in `server/src/db/migrations/`, run at startup). The runner records each applied file name in a `schema_migrations` table and applies every file not yet recorded, in name order. For each file, the migration SQL and the `schema_migrations` insert run in the same transaction, so a crash leaves the file either fully applied and recorded or not applied at all. It does not use a single version number, so phases can land in any order. Migrations touch only their own tables. No tables yet. Phases 6, 7 and 8 each add their own migration file.
+- Create `server/src/db/db.ts`: SQLite at `${DATA_DIR}/app.db` (`better-sqlite3`) and a migration runner (SQL files in `server/src/db/migrations/`, run at startup). The runner records each applied file name in a `schema_migrations` table and applies every file not yet recorded, in name order. For each file, the migration SQL and the `schema_migrations` insert run in the same transaction, so a crash leaves the file either fully applied and recorded or not applied at all. It does not use a single version number, so phases can land in any order. Migrations touch only their own tables. No tables yet. Phases 6 and 7 each add their own migration files.
 - Serve `client/dist` with `@fastify/static` in production. Vite proxies `/api` in dev.
 - Create `client/index.html`, `client/src/main.ts` (blank canvas stack placeholder).
 - Create `.github/workflows/ci.yml`: install, lint, typecheck, Vitest, Playwright E2E (Chromium).
@@ -412,7 +412,7 @@ LB-1, LB-2, LB-4, C-2.
 - `server/src/routes/leaderboard.ts`:
   - Both routes validate `:difficulty` with a Fastify route schema `enum: DIFFICULTIES` (the runtime array from `shared/src/difficulty.ts`) and return 400 for any other value before any DB access.
   - `GET /api/leaderboard/:difficulty` returns Top 10 ordered by `time_ms` asc, then `created_at` asc.
-  - `POST /api/leaderboard/:difficulty` body `{initials, timeMs}`. Checks: initials filter; `timeMs` is a positive integer (needed to store the value). No other checks (LB-4, C-2). Returns the new Top 10 and the new row id (or `null` if the row did not place).
+  - `POST /api/leaderboard/:difficulty` body `{submissionId, initials, timeMs}`. `submissionId` is a UUID the client creates once per finished run and reuses on every retry. `scores.submission_id` has a unique index; a POST with a known id inserts nothing and returns the current Top 10 and the original row id. Checks: initials filter; `timeMs` is a positive integer (needed to store the value). No other checks (LB-4, C-2). Returns the new Top 10 and the new row id (or `null` if the row did not place).
   - Bounded storage: in one transaction, insert the row, then delete every row for that difficulty outside the Top 10. The table never holds more than 30 rows.
 - All sites share one board per difficulty (no domain column).
 
@@ -421,6 +421,7 @@ LB-1, LB-2, LB-4, C-2.
 - Store no IP and no domain with scores.
 
 **Tests**
+- Integration: the same `submissionId` posted twice creates one row and both responses return the same row id.
 - Integration: 12 submits on `medium` return 10 rows, fastest first; ties order by submit time; the table holds exactly 10 `medium` rows after the 12th submit.
 - Integration: `"AB"`, `"ABCD"`, `"A1C"` give 400; `"abc"` is stored as `ABC`.
 - Integration: boards are separate per difficulty.
@@ -448,7 +449,7 @@ SEC-1, SEC-2, SEC-3, SEC-5 (rejection), ING-8 (rate limit), E-1, E-2, E-4, E-7, 
 - `server/src/net/safeFetch.ts` (`undici`):
   - Scheme `http` or `https` only. Reject URLs with user info.
   - Resolve all A and AAAA records. Reject if any address is blocked. Connect to the validated address (custom `connect.lookup`), so a second DNS answer cannot change the target (DNS rebinding).
-  - Manual redirects, max 5. Validate every hop with the same rules.
+  - Manual redirects, max 5. Validate every hop with the same rules, including the domain blocklist on the hop's `canonicalHost`. A blocked hop fails the request with `blocked_domain`. Headless requests use `safeFetch`, so they get the same check.
   - Per-request timeout, honors the shared 30 s ingestion `AbortSignal`.
   - Body cap streamed: HTML 2 MB, CSS 1 MB, image 5 MB; ingestion total 40 MB. Abort on overflow.
 - `server/src/net/limits.ts`: constants above in one place.
@@ -456,7 +457,7 @@ SEC-1, SEC-2, SEC-3, SEC-5 (rejection), ING-8 (rate limit), E-1, E-2, E-4, E-7, 
 - Migrations `002_blocklist.sql` and `003_rate_limit.sql` (Phase 1 runner).
 - `server/src/policy/blocklist.ts`: table `blocklist(domain, created_at)`, entries stored in canonical form. A canonical host matches if it equals an entry or ends with `.` + entry.
 - `server/src/cli/blocklist.ts`: `npm run blocklist -- add|remove|list <domain>`. `add` also purges the domain cache (Phase 8 hook).
-- `server/src/policy/rateLimit.ts`: sliding window, 5 per IP per hour, in SQLite (survives restarts). A slot is used only when a real fetch starts. Cache hits, invalid URLs and blocklisted URLs use no slot (Q-2).
+- `server/src/policy/rateLimit.ts`: sliding window, 5 per IP per hour, in SQLite (survives restarts). Table `rate_events(ip_hash, at)` stores a SHA-256 of the IP, not the IP. Each insert deletes that IP's events older than 1 h, and the Phase 8 sweeper deletes all events older than 1 h every minute, so the table holds at most one hour of admitted ingestions. A slot is used only when a real fetch starts. Cache hits, invalid URLs and blocklisted URLs use no slot (Q-2).
 - Fastify `trustProxy` set from config (Railway runs one proxy hop) so `request.ip` is the client IP.
 
 **Implementation notes**
@@ -468,11 +469,13 @@ SEC-1, SEC-2, SEC-3, SEC-5 (rejection), ING-8 (rate limit), E-1, E-2, E-4, E-7, 
 - Integration with an injected resolver and a local fixture server:
   - hostname resolving to 127.0.0.1 is rejected;
   - public URL that redirects to `http://169.254.169.254/` is rejected at the hop;
+  - allowed URL that redirects to a blocklisted domain returns `blocked_domain`, and nothing is cached;
   - resolver that returns public then private (rebinding) never connects to the private address;
   - `ftp://`, `file://`, `javascript:` and `http://user:pass@host` are rejected;
   - a 3 MB HTML body aborts at 2 MB.
 - Integration: blocklisted `example.com` rejects `example.com`, `www.example.com`, `EXAMPLE.com`, `example.com.` and `www.example.com..`; allows `notexample.com`. CLI `add Example.COM.` stores `example.com`. An IDN entry matches both its Unicode and punycode request forms.
 - Integration: 6th uncached ingestion in one hour from one IP returns `rate_limited` and no fetch happens; cache hits after that still succeed.
+- Integration: 1,000 ingestions from 1,000 different IPs, then clock +61 min and one sweep: `rate_events` is empty.
 
 **Acceptance criteria**
 - All tests pass.
@@ -492,7 +495,8 @@ Phase 1.
 ING-3 to ING-9, SEC-3, SEC-4, C-1, D-2, D-3, E-3, E-7.
 
 **Changes**
-- `server/src/ingest/pipeline.ts`: orchestrates the steps under one 30 s `AbortController`. On timeout, returns what it has with `partial: true` (E-3).
+- `server/src/ingest/pipeline.ts`: orchestrates the steps under one 30 s `AbortController`. On timeout, returns what it has with `partial: true` (E-3). The route races the pipeline against the deadline, so the response never waits for work that cannot be aborted.
+- `server/src/faces/worker.ts`: `sharp` decode, YuNet detection and cropping run in a `worker_threads` pool (2 workers). Each job gets the time left in the budget; on deadline the pool calls `worker.terminate()` and starts a fresh worker, so a slow decode or inference cannot keep using CPU past 30 s.
 - `server/src/ingest/colors.ts` (ING-3): fetch homepage HTML, then linked stylesheets (max 10) and inline `<style>`. Parse with `css-tree`. Score candidates: custom properties with brand-like names (`--primary`, `--brand`, `--accent`, `--color-primary` and similar) first, then saturated colors used as `background-color` or `color` on buttons, links and headers, ranked by frequency. Drop near-white, near-black and low-chroma grays. Return 0, 1 or 2 colors. The client does readability and derivation (Phase 5).
 - `server/src/ingest/crawl.ts` (ING-4): from the homepage, follow same-site links whose path or text matches team, about, leadership, people, company, and up to N blog post links. Max 12 pages. Collect `<img>` (`src`, `srcset` largest), author images on blog posts (`.author img`, `[rel=author] img`, schema.org `author.image`).
 - `server/src/ingest/images.ts`: fetch candidates through `safeFetch`, decode with `sharp` (`limitInputPixels` 25 MP). Accept JPEG, PNG, WebP, GIF (first frame) only. Discard SVG, non-images, decode failures and oversize (E-7).
@@ -501,10 +505,11 @@ ING-3 to ING-9, SEC-3, SEC-4, C-1, D-2, D-3, E-3, E-7.
 - `server/src/ingest/headless.ts` (ING-6): if static faces < 5 and budget remains, load the same pages in Playwright Chromium:
   - every request goes through `page.route` and is fulfilled by `safeFetch` (so SSRF rules apply to the browser too);
   - WebSockets closed via `routeWebSocket`; service workers blocked; WebRTC non-proxied UDP disabled; browser `proxy` set to a dead local port so any request that escapes routing fails;
-  - after load, collect rendered image URLs and feed them to `images.ts`;
+  - after load, run the `crawl.ts` link matcher on the rendered DOM and visit newly found team, about, leadership and blog pages (same 12-page total cap as the static crawl);
+  - collect rendered image URLs from every visited page and feed them to `images.ts`;
   - max 2 headless sessions at once; queued requests count against their own 30 s budget.
-- `server/src/cache/faceCache.ts` (ING-9, C-1): key = `canonicalHost` (Phase 7), exact. `example.com` and `www.example.com` are separate entries, so cache keys use the same matching rule as the blocklist. Files under `${DATA_DIR}/faces/<sha256(key)>/`. Index row `(key, colors_json, created_at)` in migration `004_face_cache.sql`. Cache only complete ingestions (not `partial`). Cache TTL is 23 h for reads (`CACHE_TTL`), so the sweeper interval cannot push any file past 24 h (C-1).
-- `server/src/cache/sweeper.ts`: at startup and every 10 min, delete entries and files older than `CACHE_TTL` (23 h). Worst-case file lifetime is 23 h 10 min, under the 24 h limit.
+- `server/src/cache/faceCache.ts` (ING-9, C-1): key = `canonicalHost` (Phase 7), exact. `example.com` and `www.example.com` are separate entries, so cache keys use the same matching rule as the blocklist. The cache lives in process memory only (a `Map` with LRU eviction, cap 256 MB). Face crops are never written to disk, so no face data survives a stop, crash or redeploy, and downtime cannot extend the 24 h limit (C-1). Entry = `{colors, faces, createdAt}`. Cache only complete ingestions (not `partial`). Cache TTL is 23 h for reads (`CACHE_TTL`).
+- `server/src/cache/sweeper.ts`: every 1 min, delete entries older than `CACHE_TTL` (23 h) and entries whose key matches the blocklist. Worst-case lifetime is 23 h 1 min, under the 24 h limit. The blocklist CLI is a separate process, so this sweep is how a new blocklist entry purges the in-memory cache within 1 min; the ingest route also checks the blocklist before any cache read, so a blocked domain is never served even inside that minute.
 - `server/src/routes/ingest.ts`: order: validate URL, blocklist, cache lookup, rate limit, pipeline. Response type in `shared/src/api.ts`: `{domain, colors: string[], faces: [{id, dataUrl, width, height}], partial, source: "cache" | "static" | "headless"}`.
 - `server/src/routes/upload.ts` (ING-7, D-2): `POST /api/faces/upload`, multipart, max 10 files, 5 MB each. Same decode, detect and crop path. Processed in memory. Never written to disk or cache. Returns face crops in the same shape. Light abuse limit: 20 upload requests per IP per hour.
 
@@ -512,8 +517,8 @@ ING-3 to ING-9, SEC-3, SEC-4, C-1, D-2, D-3, E-3, E-7.
 - Faces go to the client as data URLs in the JSON response. No public face URLs exist, so no extra access-control surface.
 - Never store or log names, alt text, captions, file names or page URLs with faces (SEC-4). Logs hold the domain, counts and timings only.
 - `blocklist add` calls `faceCache.purge(domain)` (C-1, SEC-5 takedown).
-- `faceCache.purge(entry)` deletes every key that equals `entry` or ends with `.` + `entry` (the blocklist matching rule). Test: cache `example.com` and `www.example.com`; `blocklist add example.com` deletes both; `blocklist add www.example.com` deletes only `www.example.com`.
-- Blocklist race: the cache write and a fresh blocklist check run in one SQLite transaction. If the domain became blocklisted during the pipeline, nothing is cached and the request returns `blocked_domain`. Test: block the domain while a fixture pipeline is in flight; assert no cache files and a `blocked_domain` response.
+- `faceCache.purge(entry)` deletes every key that equals `entry` or ends with `.` + `entry` (the blocklist matching rule). The sweeper calls it for each blocklist entry. Test: cache `example.com` and `www.example.com`; after `blocklist add example.com` and one sweep, both are gone; after `blocklist add www.example.com` and one sweep, only `www.example.com` is gone; a request for a just-blocked domain returns `blocked_domain` before the sweep runs.
+- Blocklist race: after the pipeline, a fresh blocklist check (synchronous `better-sqlite3` read) and the cache `set` run in one synchronous block with no `await` between them. If the domain became blocklisted during the pipeline, nothing is cached and the request returns `blocked_domain`. Test: block the domain while a fixture pipeline is in flight; assert no cache entry and a `blocked_domain` response.
 - Verify the YuNet model license file and commit it next to the model in `server/models/`.
 
 **Tests**
@@ -523,10 +528,12 @@ ING-3 to ING-9, SEC-3, SEC-4, C-1, D-2, D-3, E-3, E-7.
 - Integration (fixture server, injected resolver):
   - static site with 6 faces: `source: "static"`, no headless launch;
   - JS-rendered site with 0 static faces and 6 rendered: `source: "headless"`;
+  - SPA whose `/team` link exists only after JavaScript runs, with the faces on `/team`: headless finds the link, visits it and returns the faces;
   - site that stalls: response by 30 s + small margin with `partial: true` and whatever was found;
+  - injected detector that sleeps 60 s: response by 30 s + small margin with `partial: true`; the worker is terminated and the next job runs on a fresh worker;
   - SVG, HTML-as-image, 8 MB image are discarded;
   - second request within 24 h: `source: "cache"`, no rate-limit slot used;
-  - sweeper with clock +23 h 1 min deletes files and index row; no file older than 23 h 10 min exists in a simulated 48 h run with entries created at random times.
+  - sweeper with clock +23 h 1 min deletes the entry; no entry older than 23 h 1 min exists in a simulated 48 h run; after an app restart the cache is empty and `DATA_DIR` holds no face data.
 - Integration upload: 2 JPEGs with faces return 2 crops; nothing appears under `DATA_DIR`; a text file is rejected.
 - Headless SSRF: fixture page that loads `http://127.0.0.1/secret` via `<img>` and `fetch()` never reaches the loopback server.
 
@@ -575,6 +582,7 @@ SUC-1, ING-1, ING-7, LB-2, LB-3, LB-4, LB-5, E-1, E-2, E-3, E-4, E-5, E-6, E-8, 
   - `blocked_domain`: error with Retry and manual upload; manual upload path opens color picker;
   - non-qualifying time: no initials prompt;
   - submit 500 then retry 200: error shown then board shown.
+  - submit commits but the response is dropped (route aborted), then retry: the board holds the run once.
 - E2E against the real server with a fixture site (injected resolver in test app): one full journey.
 
 **Acceptance criteria**
@@ -655,7 +663,7 @@ DEL-1, DEL-2, SEC-5 (process), C-4, AGPL compliance (repo evidence, section 0.1)
 **Tests**
 - CI builds the Docker image and runs `/api/health` against it.
 - Production smoke test: SUC-1 journey on the deployed URL.
-- Restart the service: leaderboard rows survive; cache files older than 24 h are gone.
+- Restart the service: leaderboard rows survive; the face cache is empty; `DATA_DIR` contains no image files.
 
 **Acceptance criteria**
 - Public URL serves the game. Launch checklist is fully checked, including C-4, before public announcement.
@@ -670,12 +678,12 @@ Phases 9 and 10.
 | Concern | Work | Owner phase |
 |---|---|---|
 | SSRF and abuse | IP policy, pinned connect, redirect checks, size caps, headless routing, rate limits | 7, 8 |
-| Privacy | Detection only, no recognition model; no names, alt text or URLs stored; uploads in memory only; 24 h cache with sweeper; blocklist purges cache | 8 |
+| Privacy | Detection only, no recognition model; no names, alt text or URLs stored; uploads in memory only; 24 h in-memory cache (no face data on disk); blocklist purges cache within 1 min | 8 |
 | Takedown | Footer link, About text, blocklist CLI, operations doc | 5, 7, 11 |
 | Licensing | AGPL source link; dependency and model license check; Sprite Fusion terms (C-4); no copied third-party assets (C-3) | 8, 10, 11 |
 | Accessibility | Keyboard-only is a requirement, so all menus must work with keyboard (Tab, Enter). Text contrast via readability module. No further a11y scope. | 5, 9 |
 | Observability | Structured Fastify logs: ingestion domain, outcome code, duration, face count, source. No face data. | 8 |
-| Data migrations | Name-tracked SQL migrations (`schema_migrations` table); runner in Phase 1, one file per feature, order-independent | 1, 6, 7, 8 |
+| Data migrations | Name-tracked SQL migrations (`schema_migrations` table); runner in Phase 1, one file per feature, order-independent | 1, 6, 7 |
 | Rollback | Railway redeploy of the previous image. Migrations are additive only, so a previous image runs on a newer schema. | 11 |
 
 ---
@@ -759,7 +767,7 @@ Phases 9 and 10.
 | E-10 | Fewer than 5 faces: prompt upload, skippable | 9 | E2E |
 | E-11 | Submit fails: show result and error, allow retry | 9 | E2E 500 then 200 |
 | E-12 | Window too narrow: "Make the window wider to play" | 2 | Resize E2E |
-| C-1 | No face data beyond 24 h cache | 8 | Sweeper test; upload writes nothing to disk |
+| C-1 | No face data beyond 24 h cache | 8 | Sweeper test; in-memory cache empty after restart; no face data in `DATA_DIR` |
 | C-2 | Trust-based leaderboard | 6 | No extra checks (review) |
 | C-3 | No copied third-party assets | 10 | Art pipeline doc; review |
 | C-4 | Read Sprite Fusion terms before launch | 11 | Launch checklist item |
@@ -840,7 +848,7 @@ No unresolved product decisions remain.
 | Short viewport gave k=0 | `k = max(1, ...)`; 960 x 539 test |
 | Footer config could not reach static files; config fetch could fail | Server injects meta tags into `index.html`; required at startup |
 | Play again face check had no stable id | `id` = crop SHA-256; compare sorted id multiset |
-| 10 min sweeper could exceed 24 h | Read TTL 23 h; worst case 23 h 10 min |
+| 10 min sweeper could exceed 24 h | Read TTL 23 h; later superseded by in-memory cache (see below) |
 | Leaderboard table unbounded | Prune to Top 10 per difficulty in the insert transaction |
 | Face crops unbounded | 256 px longest side, 150 KB cap |
 | Sprite contract defined after Phase 10 could start | Contract moved to Phase 2 |
@@ -855,6 +863,12 @@ No unresolved product decisions remain.
 | `CONTACT_EMAIL` form ambiguous (`mailto:mailto:` risk) | Plain address only; client adds the scheme |
 | Leaderboard accepted any `:difficulty` | Enum validation, 400 before DB access |
 | Cache merged `www.` and bare host but blocklist did not, so a purge could miss entries | Owner decision: exact `canonicalHost` cache key; purge uses the blocklist matching rule |
+| Disk cache outlived 24 h while the service was down | Face cache moved to process memory; nothing on disk |
+| Redirect to a blocklisted domain bypassed the takedown | Blocklist checked on every redirect hop |
+| Rate-limit table grew without bound | Hashed IP, prune events older than 1 h |
+| `sharp` and YuNet ignored the abort signal | Worker pool with terminate on deadline |
+| Headless retry did not find JS-only links | Rerun link discovery on the rendered DOM |
+| Lost submit response could duplicate a score on retry | Client `submissionId` with unique index |
 | `user_version` runner would skip `001` if Phase 7 landed before Phase 6 | Runner tracks applied file names; late files still apply |
 | Migration SQL and its record could commit separately | Same transaction; crash-boundary test |
 | `Difficulty` type-only union has no runtime values for the schema enum | Runtime `DIFFICULTIES` array; type derived from it |
