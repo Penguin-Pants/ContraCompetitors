@@ -1,4 +1,5 @@
-import { Worker } from 'node:worker_threads';
+import { fork, type ChildProcess } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import type { FaceCrop } from './crop.ts';
 import type { WorkerJob, WorkerReply } from './worker.ts';
 
@@ -14,7 +15,7 @@ interface Pending {
 }
 
 interface Slot {
-  worker: Worker;
+  worker: ChildProcess;
   ready: Promise<void>;
   busy: Pending | null;
   timer: NodeJS.Timeout | null;
@@ -26,12 +27,15 @@ export interface PoolOptions {
   testDetectDelayMs?: number;
 }
 
-const WORKER_URL = new URL('./worker.ts', import.meta.url);
+const WORKER_PATH = fileURLToPath(new URL('./worker.ts', import.meta.url));
 
 /**
- * Decode, detection and cropping run in worker threads (2 by default). Each job gets the time
- * left in the ingestion budget. On timeout the worker is terminated and replaced, so slow work
+ * Decode, detection and cropping run in worker processes (2 by default). Each job gets the time
+ * left in the ingestion budget. On timeout the worker is killed and replaced, so slow work
  * cannot keep using CPU past the deadline.
+ *
+ * Processes, not worker threads: onnxruntime-node aborts the whole process when a worker thread
+ * is terminated while it loads the model or runs. A killed child process cannot do that.
  */
 export class FacePool {
   private readonly slots: Slot[] = [];
@@ -49,27 +53,43 @@ export class FacePool {
 
   private spawn(): Slot {
     this.started++;
-    const worker = new Worker(WORKER_URL, {
-      workerData: { testDetectDelayMs: this.opts.testDetectDelayMs },
-    });
+    const worker = fork(
+      WORKER_PATH,
+      [JSON.stringify({ testDetectDelayMs: this.opts.testDetectDelayMs })],
+      {
+        // Structured clone, so image bytes cross as Uint8Array and not as JSON.
+        serialization: 'advanced',
+        execArgv: [],
+        stdio: ['ignore', 'inherit', 'inherit', 'ipc'],
+      },
+    );
     const slot: Slot = { worker, busy: null, timer: null, ready: Promise.resolve() };
     slot.ready = new Promise((resolve, reject) => {
-      const onMsg = (m: { ready?: boolean }) => {
-        if (m.ready) {
-          worker.off('message', onMsg);
-          resolve();
-        }
-      };
-      worker.on('message', onMsg);
-      worker.once('error', reject);
+      worker.once('exit', () => reject(new Error('face worker exited')));
+      worker.on('message', (m: WorkerReply | { ready: true }) => {
+        if ('ready' in m) resolve();
+        else this.finish(slot, m);
+      });
     });
-    worker.on('message', (m: WorkerReply | { ready: true }) => {
-      if ('ready' in m) return;
-      this.finish(slot, m);
-    });
-    worker.on('error', (err) => this.fail(slot, err));
+    // A job on a worker that dies is failed by the exit handler.
+    slot.ready.catch(() => {});
+    worker.once('exit', (code, signal) =>
+      this.fail(slot, new Error(`face worker exited (${signal ?? code})`)),
+    );
+    worker.once('error', (err) => this.fail(slot, err));
     worker.unref();
+    worker.channel?.unref();
     return slot;
+  }
+
+  /** SIGKILL: the worker may be inside native code that does not see a soft signal. */
+  private kill(slot: Slot) {
+    if (slot.timer) clearTimeout(slot.timer);
+    slot.timer = null;
+    slot.worker.removeAllListeners('exit');
+    slot.worker.removeAllListeners('error');
+    slot.worker.on('error', () => {});
+    slot.worker.kill('SIGKILL');
   }
 
   private finish(slot: Slot, reply: WorkerReply) {
@@ -87,17 +107,20 @@ export class FacePool {
   }
 
   private fail(slot: Slot, err: Error) {
+    if (!this.slots.includes(slot)) return;
     const p = slot.busy;
+    slot.busy = null;
     this.replace(slot);
     p?.reject(err);
     this.pump();
   }
 
   private replace(slot: Slot) {
-    if (slot.timer) clearTimeout(slot.timer);
-    void slot.worker.terminate();
+    this.kill(slot);
     const i = this.slots.indexOf(slot);
-    if (i >= 0 && !this.closed) this.slots[i] = this.spawn();
+    if (i < 0) return;
+    if (this.closed) this.slots.splice(i, 1);
+    else this.slots[i] = this.spawn();
   }
 
   private pump() {
@@ -113,7 +136,10 @@ export class FacePool {
         next.reject(new PoolTimeout('face job deadline'));
         this.pump();
       }, next.timeoutMs);
-      void slot.ready.then(() => slot.worker.postMessage(next.job));
+      void slot.ready.then(
+        () => slot.busy === next && slot.worker.send(next.job),
+        () => {},
+      );
     }
   }
 
@@ -153,10 +179,21 @@ export class FacePool {
     }
   }
 
-  /** Drops queued jobs that have not started (deadline passed for the caller). */
+  /** Rejects queued and running jobs and kills every worker. */
   async close() {
     this.closed = true;
     for (const p of this.queue.splice(0)) p.reject(new Error('pool closed'));
-    await Promise.all(this.slots.map((s) => s.worker.terminate()));
+    const slots = this.slots.splice(0);
+    await Promise.all(
+      slots.map((slot) => {
+        this.kill(slot);
+        slot.busy?.reject(new Error('pool closed'));
+        slot.busy = null;
+        if (slot.worker.exitCode !== null || slot.worker.signalCode !== null) return;
+        // Held, so a close waits for the exit even with nothing else in the event loop.
+        slot.worker.ref();
+        return new Promise<void>((r) => slot.worker.once('exit', () => r()));
+      }),
+    );
   }
 }

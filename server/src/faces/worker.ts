@@ -1,4 +1,3 @@
-import { parentPort, workerData } from 'node:worker_threads';
 import { createYunetDetector, type Detector } from './detector.ts';
 import { ImageRejected, processImage } from './crop.ts';
 
@@ -20,7 +19,10 @@ interface TestWorkerData {
   testDetectDelayMs?: number;
 }
 
-const data = (workerData ?? {}) as TestWorkerData;
+/** Child process of FacePool (pool.ts). Test options arrive as JSON in argv. */
+const data = JSON.parse(process.argv[2] ?? '{}') as TestWorkerData;
+// The pool is gone: stop, so no orphan keeps the model in memory.
+process.on('disconnect', () => process.exit(0));
 const real = await createYunetDetector();
 const detector: Detector = data.testDetectDelayMs
   ? {
@@ -31,7 +33,7 @@ const detector: Detector = data.testDetectDelayMs
     }
   : real;
 
-parentPort!.on('message', async (job: WorkerJob) => {
+process.on('message', async (job: WorkerJob) => {
   let reply: WorkerReply;
   try {
     const crops = await processImage(job.bytes, detector);
@@ -44,6 +46,6 @@ parentPort!.on('message', async (job: WorkerJob) => {
       message: (err as Error).message,
     };
   }
-  parentPort!.postMessage(reply);
+  process.send!(reply);
 });
-parentPort!.postMessage({ ready: true });
+process.send!({ ready: true });

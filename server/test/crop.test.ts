@@ -1,3 +1,4 @@
+import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import sharp from 'sharp';
@@ -94,7 +95,7 @@ describe('FacePool', () => {
     await pool?.close();
   });
 
-  test('runs jobs in worker threads', async () => {
+  test('runs jobs in worker processes', async () => {
     pool = new FacePool({ size: 2 });
     const crops = await pool.process(photo('gemini7-crew.jpg'), 20_000);
     expect(crops).toHaveLength(2);
@@ -126,4 +127,18 @@ describe('FacePool abort', () => {
     expect(pool.started).toBe(started + 1);
     await pool.close();
   });
+});
+
+describe('FacePool shutdown', () => {
+  test('closing pools and aborting jobs while workers load the model or detect never aborts the process', async () => {
+    const script = path.join(import.meta.dirname, 'helpers/poolChurn.ts');
+    const result = await new Promise<{ code: number | null; signal: string | null; out: string }>(
+      (resolve) => {
+        const child = execFile(process.execPath, [script, '12'], { timeout: 120_000 }, (_e, out) =>
+          resolve({ code: child.exitCode, signal: child.signalCode, out }),
+        );
+      },
+    );
+    expect(result).toEqual({ code: 0, signal: null, out: 'ok\n' });
+  }, 130_000);
 });

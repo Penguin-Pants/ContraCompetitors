@@ -952,6 +952,7 @@ Review method per phase: two passes on the full phase diff. Pass 1 checks covera
 - Phase 8 deviation (headless redirects): Chromium does not send the request after a fulfilled 3xx back through `context.route`; it went to the dead proxy (verified by test). Main-frame navigations therefore run single-hop and the runner navigates to `location` itself (max 5 hops), so the document URL is the real final URL. Subresources follow redirects inside `safeFetch` (every hop checked, max 5). `redirectedFrom()` counting is not used.
 - Phase 8: pool jobs take the ingestion abort signal. On the deadline queued jobs are dropped and a running job's worker is terminated, so no detection CPU is used past the budget.
 - Phase 8: `.npmrc` sets `onnxruntime-node-install=skip` (CPU only; the linux/x64 install script otherwise downloads CUDA providers from NuGet).
+- Phase 8 (CI fix): face workers are child processes, not worker threads. onnxruntime-node aborted the whole process (SIGABRT, `Napi::Error`) when a worker thread was terminated while it loaded the model. A killed child process cannot abort the server. `close()` also rejects running jobs and waits for the workers to exit. `server/test/helpers/poolChurn.ts` is the regression check.
 - Phase 8: headless runner options `headlessSandbox: false`, `pool.testDetectDelayMs` and `ingestionMs` exist only as `createApp` code overrides for tests.
 
 - Phase 9: the upload prompt focuses the visually hidden file input (Enter opens the chooser; Tab reaches Skip), so the flow works keyboard-only.
