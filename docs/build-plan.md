@@ -83,7 +83,7 @@ bottom L0  bg canvas       Fixed-palette backdrop and light glows (device resolu
 
 - **Art grid:** 480 x 270 art pixels (16:9).
 - **Pixel canvas (L1):** 960 x 540. Every art sprite draws at exactly 2x on L1. This gives a grid that is finer than world pixels for Pixelated faces (THM-5). Pixelated faces use 1 L1 pixel = 1/2 art pixel.
-- **Upscale:** L1 scales to the screen by integer factor `k = floor(min(viewportW / 960, viewportH / 540))` with CSS `image-rendering: pixelated`. `k >= 1` is required. If the viewport is narrower than 960 CSS px, the game shows "Make the window wider to play" (E-12).
+- **Upscale:** L1 scales to the screen by integer factor `k = max(1, floor(min(viewportW / 960, viewportH / 540)))` with CSS `image-rendering: pixelated`. The `max(1, ...)` keeps `k >= 1` when the viewport is shorter than 540 CSS px; the stage then keeps k=1 and the page scrolls vertically (the spec defines no short-window message). If the viewport is narrower than 960 CSS px, the game shows "Make the window wider to play" (E-12).
 - **Rotation (RND-3):** a rotated sprite first rotates into a scratch canvas at art resolution (nearest neighbor), then blits at 2x onto L1. Pixels stay on the art grid.
 - **Camera:** snaps to whole art pixels. L2 uses the same snapped camera so Smooth faces stay locked to their bodies.
 - **Smooth face draw order:** L2 is above L1. A Smooth face draws over its body and over any pixel art in front of it (accepted in Q-1).
@@ -128,7 +128,7 @@ server/src/
   ingest/    pipeline.ts  colors.ts  crawl.ts  headless.ts  images.ts
   faces/     detector.ts  crop.ts
   cache/     faceCache.ts  sweeper.ts
-  routes/    ingest.ts  upload.ts  leaderboard.ts  health.ts
+  routes/    ingest.ts  upload.ts  leaderboard.ts  health.ts  config.ts
   policy/    blocklist.ts  rateLimit.ts
   cli/       blocklist.ts
 server/models/               yunet .onnx + LICENSE
@@ -146,11 +146,10 @@ client/src/
   vfx/       particles.ts  gore.ts  facePop.ts  explosions.ts  laser.ts
   audio/     sfx.ts  audio.ts
   ui/        mainMenu.ts  loading.ts  upload.ts  errors.ts  pause.ts
-             hud.ts  postGame.ts  leaderboard.ts  footer.ts  narrowGuard.ts
+             hud.ts  postGame.ts  leaderboard.ts  footer.ts  about.ts  narrowGuard.ts
   api/       client.ts
   assets/    manifest.ts  loader.ts
 client/public/assets/sprites/  committed Sprite Fusion PNGs
-client/public/about.html
 client/test/  unit
 e2e/          Playwright specs
 ```
@@ -227,7 +226,7 @@ DEL-3, RND-1, RND-2, RND-3, RND-6 (code-drawn path), CTL-1, CTL-2, E-12.
 - Freezing during the narrow guard prevents damage while the player cannot see the game. This is a safety choice, not a new feature.
 
 **Tests**
-- Unit: scale factor `k` for sample viewports (959 px gives guard, 960 gives k=1, 1920 x 1080 gives k=2).
+- Unit: scale factor `k` for sample viewports (959 px wide gives guard, 960 x 540 gives k=1, 960 x 539 gives k=1 and no guard, 1920 x 1080 gives k=2).
 - Unit: input map ignores `ArrowLeft`, `ArrowRight`, `ArrowUp`, `ArrowDown`.
 - E2E pixel check: read back L1 after upscale (screenshot of the canvas element). Every `2k x 2k` block that maps to one art pixel has one color. Run with a rotated sprite on screen.
 - E2E: resize to 900 px wide shows the narrow message; resize back hides it.
@@ -361,7 +360,9 @@ DEL-4, ING-1 (menu UI), ING-2, THM-1 to THM-8, RND-4 (face pop), ENM-3, PAU-3 (a
   - `client/src/ui/mainMenu.ts`: URL field, difficulty (Easy, Medium, Hard), Face style (Auto default, Smooth, Pixelated), Start. Face style is not persisted (resets to Auto each visit, D-4).
   - `client/src/ui/pause.ts`: add Main menu and Sound toggle (D-6).
   - `client/src/ui/postGame.ts`: show final time, Play again (same site, difficulty and face data, I-3) and Main menu. Leaderboard slot is empty until Phase 9.
-  - `client/src/ui/footer.ts`: About link (`client/public/about.html`) and a takedown and blocklist request link (`mailto:` to `CONTACT_EMAIL`, injected at build). About page explains the game, the 24 h face cache, no recognition and the takedown process.
+  - `server/src/routes/config.ts`: `GET /api/config` returns `{contactEmail, sourceUrl}` from the server env vars `CONTACT_EMAIL` and `SOURCE_URL`. Runtime config, so the Docker image needs no rebuild when values change.
+  - `client/src/ui/footer.ts`: About link and a takedown and blocklist request link (`mailto:` to `contactEmail` from `/api/config`). If the config fetch fails, the footer shows the About link only.
+  - `client/src/ui/about.ts`: About view (DOM overlay, not a static file, so it can use `/api/config`). It explains the game, the 24 h face cache, no recognition and the takedown process.
 - Audio: `client/src/audio/sfx.ts` (synth SFX: shoot, spread, laser loop, hit, enemy pop, pickup, jump, life lost, exit). Default state: on. Audio context starts on first keypress (browser autoplay rule). Sound state lives in memory for the visit.
 - Dev fixtures: `client/src/dev/fixtures.ts` with sample colors and faces, loaded only by a dev query flag, so this phase is testable without the server.
 - All UI text is English (D-1).
@@ -379,7 +380,8 @@ DEL-4, ING-1 (menu UI), ING-2, THM-1 to THM-8, RND-4 (face pop), ENM-3, PAU-3 (a
 - E2E: start with fixture "no colors" opens the color picker; picked colors appear in the HUD accent.
 - E2E: Smooth override draws faces on L2 and none on L1; Pixelated override draws none on L2.
 - E2E: pause menu has exactly Resume, Restart level, Main menu, Sound; Main menu returns to the menu; Sound toggle mutes output (gain node at 0).
-- E2E: post-game Play again starts a new run with the same difficulty and face count without a network call.
+- E2E: post-game Play again starts a new run with the same difficulty, face IDs and selected colors, without a network call.
+- Integration: `GET /api/config` returns the values of `CONTACT_EMAIL` and `SOURCE_URL`. E2E: footer `mailto:` uses the configured address.
 
 **Acceptance criteria**
 - All tests above pass.
@@ -600,6 +602,7 @@ RND-5, RND-6, RND-7, THM-3 (bobble-head bodies), ENM-2, C-3.
 **Tests**
 - Unit: manifest validation: every frame has a head anchor inside frame bounds; every sheet exists; every enemy sheet has clothing-ramp pixels.
 - Static check: `grep` for `spritefusion.com` in `client/src` and `server/src` finds no runtime URL (RND-7).
+- E2E on the production build: record all requests during startup and one scripted run; assert none go to `spritefusion.com` (RND-7).
 - E2E pixel check from Phase 2 re-run with final art.
 
 **Acceptance criteria**
@@ -622,7 +625,8 @@ DEL-1, DEL-2, SEC-5 (process), C-4, AGPL compliance (repo evidence, section 0.1)
 **Changes**
 - `Dockerfile`: base `mcr.microsoft.com/playwright:<pinned version>` (Chromium included), build client and server, run server.
 - Railway: one service, one volume mounted at `DATA_DIR`. Env vars: `PORT`, `DATA_DIR`, `CONTACT_EMAIL`, `TRUST_PROXY_HOPS`, `SOURCE_URL`.
-- Footer and About page: add "Source code" link to `SOURCE_URL` (AGPL section 13).
+- Footer and About view: add "Source code" link to `sourceUrl` from `/api/config` (AGPL section 13).
+- Production smoke test: footer takedown link and Source code link resolve to the configured `CONTACT_EMAIL` and `SOURCE_URL`.
 - `docs/operations.md`: blocklist CLI, takedown handling (add to blocklist, which purges cache), cache lifetime, rate limits, logs policy (no face metadata).
 - `docs/architecture.md`: layer stack, data flow, security model.
 - `docs/launch-checklist.md`: read Sprite Fusion terms for generated asset use (C-4); confirm YuNet license; confirm all dependency licenses are AGPL-compatible; smoke test SUC-1 on production.
@@ -692,7 +696,7 @@ Phases 9 and 10.
 | RND-4 | Gore, face pop, explosions, laser on pixel layer | 4, 5 | Pixel check during combat |
 | RND-5 | Characters and props from Sprite Fusion | 10 | Manifest validation; placeholder removal |
 | RND-6 | Tiles and effects drawn in code | 3, 4 | Code review: no tile/VFX image files |
-| RND-7 | Assets built ahead and committed; no live Sprite Fusion calls | 10 | Static grep check |
+| RND-7 | Assets built ahead and committed; no live Sprite Fusion calls | 10 | Static grep check; request-recording E2E |
 | CTL-1 | A/D, W, S, Space, Esc mapping | 2, 3, 4 | Input and movement tests; pause E2E |
 | CTL-2 | No arrow keys | 2 | Input unit test |
 | WPN-1 | Pickups from floating containers replace weapon | 4 | Pickup unit test |
