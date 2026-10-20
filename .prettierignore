@@ -7,3 +7,4 @@ package-lock.json
 LICENSE
 *.md
 server/models
+deploy/seccomp_profile.json

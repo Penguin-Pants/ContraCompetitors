@@ -1,6 +1,7 @@
 {
   "name": "@lr/server",
   "private": true,
+  "license": "AGPL-3.0-only",
   "type": "module",
   "dependencies": {
     "@fastify/multipart": "^10.1.4",

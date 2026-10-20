@@ -31,3 +31,11 @@ jobs:
           name: playwright-report
           path: test-results/
           retention-days: 7
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      # Builds the image, then checks health, a non-root server, the Chromium sandbox (with the
+      # Playwright seccomp profile) and a restart that keeps scores but no face data.
+      - run: sh deploy/smoke-docker.sh

@@ -805,10 +805,12 @@ Phases 9 and 10.
 
 | Type | Item | Blocks |
 |---|---|---|
-| External dependency | Product owner connects the Sprite Fusion MCP (OAuth sign-in) and confirms about 225 to 450 credits with `get_credits` | Phase 10 only. Phases 1 to 9 use placeholders. |
+| External dependency | Product owner connects the Sprite Fusion MCP (OAuth sign-in) and confirms about 225 to 450 credits with `get_credits` | Phase 10 art. Status 2026-10-20: still open; placeholders ship. |
 | Launch gate | Sprite Fusion terms review (C-4) | Public launch only |
-| Config value | `CONTACT_EMAIL` for the takedown link | Phase 11 deploy only. Code uses a config value. |
-| Config value | Railway project, volume and public domain | Phase 11 only |
+| Config value | `CONTACT_EMAIL` for the takedown link | Phase 11 deploy only. Code uses a config value. Still open. |
+| Config value | Railway project, volume and public domain | Phase 11 deploy. Still open. |
+| Host capability | Chromium sandbox on Railway (seccomp) or a separate headless service | Headless retry in production. Still open. |
+| Human check | Manual Medium playtest (3 runs) and SUC-1 on the deployed URL | SUC-1 sign-off. Still open. |
 
 No unresolved product decisions remain.
 
@@ -910,7 +912,7 @@ Review method per phase: two passes on the full phase diff. Pass 1 checks covera
 | 8 Ingestion, faces, cache | ✅ Done | Unit: colors (brand var wins, gray gives 0, single color, channel lists, shades), crawl (team/about/leadership, off-site ignored, blog author images incl. JSON-LD, srcset, base href), crop (512 x 614 cap, 512 px PNG under the byte cap, 2-face photo gives 2 crops, landscape 0, SVG/text/broken rejected, GIF/WebP/PNG), pool (worker deadline and replacement, abort drops queued and running jobs). Integration: static 6 faces with no headless, cache hit with no slot, 6th ingestion rate-limited with no fetch while cache hits work, bad images discarded, invalid/internal/blocked URLs, redirect to blocked host caches nothing, stall and slow detector give partial by the deadline, 23 h 1 min sweep and 48 h max age, restart leaves no face data, third-party host purge, www and bare host purge, block during an in-flight pipeline, 5,000 images capped at 150 and 4 in flight, upload (2 crops, no disk writes, text, 5 MB and 10-file limits, 20 per hour). Headless (real Chromium): JS-rendered and SPA sites, SSRF via img, fetch and popup, 7-hop chain stops at hop 6, redirect keeps the final URL for relative resources, 5,000 img + 5,000 fetch flood, hung page torn down. Manual: anthropic.com, about.gitlab.com, basecamp.com, mozilla.org all under 6.5 s with colors or an empty color list. | Chromium sandbox on the production host is checked in Phase 11 |
 | 9 Client integration | ⚠️ Done except human SUC-1 sign-off | E2E with mocked API: happy path to JMD on the board, 3 faces then Skip, uploads merge with site faces, partial gives upload prompt and prefilled picker, 0 faces gives placeholders, rate_limited message only, blocked_domain Retry and manual path to the picker, unreachable text, non-qualifying time, submit 500 then retry, lost response then retry stores the run once, failed Top 10 fetch retry, initials filter, malformed URL, bad face skipped. E2E against the real server and a fixture site: full journey with 6 real detected faces to the Top 10. Unit: qualify rule. Automated SUC-1 on a real URL (www.mozilla.org, production server): 14 faces, themed run, time on the Top 10. | SUC-1 by a human tester on the deployed URL (Phase 11) |
 | 10 Final art | ❌ Blocked (art generation) | Done: sprite contract and validation for every shipped sheet, static check that runtime code never names `spritefusion.com`, E2E that records every request in startup and a full run (all requests go to the game server), `docs/art-pipeline.md` (contract, asset list, steps, prompt log). | Product owner signs in to the Sprite Fusion MCP (OAuth) and confirms credits; an agent then generates and commits the PNGs, switches sheets to `png` sources and re-runs the pixel check. Placeholder character and prop art stays until then. |
-| 11 Deploy and launch gate | Not started | | |
+| 11 Deploy and launch gate | ⚠️ Repo work done; deploy blocked | `Dockerfile` (Playwright 1.56.1 image, Node 22.20, `npm ci --ignore-scripts`), entrypoint that runs the server as `pwuser`, `deploy/smoke-docker.sh` (run locally and in a CI job): health, server UID 1001, Chromium sandbox on with the Playwright seccomp profile (fails without it), face detection in the image, restart keeps scores, `DATA_DIR` holds no face data, meta tags. `e2e/production.spec.ts` (runs with `PROD_URL`). `docs/operations.md`, `docs/architecture.md`, `docs/launch-checklist.md`, README deploy section. Dependency licenses checked. | Railway project, token, volume and domain; production sandbox check; production smoke test; human SUC-1; launch checklist items 1, 2, 5 to 11 |
 
 ### 7.1 Engineering notes
 
@@ -955,6 +957,10 @@ Review method per phase: two passes on the full phase diff. Pass 1 checks covera
 - Phase 9: the upload prompt focuses the visually hidden file input (Enter opens the chooser; Tab reaches Skip), so the flow works keyboard-only.
 - Phase 9: the initials field has no native `pattern`; the shared `initials.ts` filter is the one check and shows its own message.
 - Phase 9: `e2e/testServer.ts` (test-only) runs the app with an injected resolver and a fixture site for the real-server journey. It waits for the client build that the first Playwright web server makes.
+
+- Phase 11: the image installs with `npm ci --ignore-scripts`. All native deps ship prebuilt binaries; the image npm otherwise ran `node-gyp rebuild` for better-sqlite3 and failed without a compiler. The smoke script proves detection works in the image.
+- Phase 11: Railway volume ownership is an unverified assumption (volumes may mount as root). The entrypoint handles both cases: as root it fixes the owner of `DATA_DIR` and drops to `pwuser` with `setpriv`.
+- Phase 11: with the default Docker seccomp profile the Chromium sandbox does not start (verified). Production needs the Playwright profile or an isolated headless service (launch checklist item 5). Without it the server logs the launch error and serves static results only.
 
 ### 7.2 Proposed out-of-scope fixes
 
