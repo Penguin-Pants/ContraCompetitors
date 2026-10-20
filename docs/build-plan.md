@@ -24,6 +24,7 @@
 | I-1 | "Faces go on random enemies": which enemies get a face? | Every enemy. The game assigns faces from a shuffled list. A face repeats only when there are fewer faces than enemies. |
 | I-2 | Do uploads after partial ingestion add to or replace site faces? | Add to. The run uses site faces plus uploads. |
 | I-3 | Does "Play again" reuse loaded data or ingest again? | Reuse. Same faces, uploads and colors from browser memory. No new ingestion. |
+| Q-4 | The spec defines when the timer stops, not when it starts. | The timer starts on the first gameplay key press (A, D, W, S or Space) after the level is shown. Load time does not count. Esc does not start it. Each restart (0 lives or Restart level) waits for a new first press. |
 
 ### 0.3 Interpretations (no product change, flag if wrong)
 
@@ -259,7 +260,7 @@ CTL-1 (A/D, W, S), LVL-1 to LVL-5, LIV-6 (timer display and stop), RND-6 (tiles 
 - `client/src/level/tilesDraw.ts`: code-drawn tiles. Structural accents use a theme slot (filled in Phase 5, gray until then).
 - `client/src/engine/physics.ts`, `collision.ts`: gravity, AABB vs tiles, one-way platforms.
 - `client/src/game/player.ts`: A/D move, W jump onto platforms, S drop through one-way platforms, facing direction.
-- `client/src/game/timer.ts`: accumulates unpaused frame time, display `m:ss.mmm`, stops on first contact with the exit boundary.
+- `client/src/game/timer.ts`: shows `0:00.000` until the first gameplay key press (Q-4), then accumulates unpaused frame time, display `m:ss.mmm`, stops on first contact with the exit boundary.
 - `client/src/ui/hud.ts`: timer on L3.
 - No bottomless pits (I-4).
 
@@ -270,6 +271,7 @@ CTL-1 (A/D, W, S), LVL-1 to LVL-5, LIV-6 (timer display and stop), RND-6 (tiles 
 **Tests**
 - Unit: one-way platform: W lands on it from below, S drops through it, solid tiles block both.
 - Unit: timer formats 61234 ms as `1:01.234`; timer stops at exit and ignores later frames.
+- Unit: timer stays at 0 with no input and after Esc alone; starts on the first A, D, W, S or Space; a restart returns it to the waiting state (Q-4).
 - E2E: scripted input run from start to exit completes and shows a stopped timer.
 
 **Acceptance criteria**
@@ -363,8 +365,8 @@ DEL-4, ING-1 (menu UI), ING-2, THM-1 to THM-8, RND-4 (face pop), ENM-3, PAU-3 (a
   - `client/src/ui/mainMenu.ts`: URL field, difficulty (Easy, Medium, Hard), Face style (Auto default, Smooth, Pixelated), Start. Face style is not persisted (resets to Auto each visit, D-4).
   - `client/src/ui/pause.ts`: add Main menu and Sound toggle (D-6).
   - `client/src/ui/postGame.ts`: show final time, Play again (same site, difficulty and face data, I-3) and Main menu. Leaderboard slot is empty until Phase 9.
-  - `server/src/routes/indexHtml.ts`: serves `index.html` with `<meta name="contact-email">` and `<meta name="source-url">` filled from the env vars `CONTACT_EMAIL` and `SOURCE_URL` (HTML-escaped). The server refuses to start if either is missing or not a valid `mailto`/`https` value. The values arrive with the page, so there is no separate config request that can fail, and the image needs no rebuild when values change. Vite dev server injects the same tags from `.env`.
-  - `client/src/ui/footer.ts`: About link, takedown and blocklist request link (`mailto:` from the `contact-email` meta tag) and Source code link (from `source-url`).
+  - `server/src/routes/indexHtml.ts`: serves `index.html` with `<meta name="contact-email">` and `<meta name="source-url">` filled from the env vars `CONTACT_EMAIL` and `SOURCE_URL` (HTML-escaped). `CONTACT_EMAIL` is a plain address (`takedown@example.com`, no scheme); `SOURCE_URL` is an `https` URL. The server refuses to start if either is missing or invalid. The values arrive with the page, so there is no separate config request that can fail, and the image needs no rebuild when values change. Vite dev server injects the same tags from `.env`.
+  - `client/src/ui/footer.ts`: About link, takedown and blocklist request link (`href` = `"mailto:" + contactEmail`; the client never receives a value that already has a scheme) and Source code link (from `source-url`).
   - `client/src/ui/about.ts`: About view (DOM overlay). It explains the game, the 24 h face cache, no recognition and the takedown process, and repeats both links.
 - Audio: `client/src/audio/sfx.ts` (synth SFX: shoot, spread, laser loop, hit, enemy pop, pickup, jump, life lost, exit). Default state: on. Audio context starts on first keypress (browser autoplay rule). Sound state lives in memory for the visit.
 - Dev fixtures: `client/src/dev/fixtures.ts` with sample colors and faces, loaded only by a dev query flag, so this phase is testable without the server.
@@ -384,7 +386,7 @@ DEL-4, ING-1 (menu UI), ING-2, THM-1 to THM-8, RND-4 (face pop), ENM-3, PAU-3 (a
 - E2E: Smooth override draws faces on L2 and none on L1; Pixelated override draws none on L2.
 - E2E: pause menu has exactly Resume, Restart level, Main menu, Sound; Main menu returns to the menu; Sound toggle mutes output (gain node at 0).
 - E2E: post-game Play again starts a new run with the same difficulty, the same multiset of face ids in the store (compare sorted ids, not enemy order, since `assign.ts` shuffles) and the same selected colors, without a network call.
-- Integration: `GET /` returns both meta tags with the configured values; server start fails when `CONTACT_EMAIL` or `SOURCE_URL` is missing or invalid. E2E: footer shows About, takedown `mailto:` and Source code links with the configured values.
+- Integration: `GET /` returns both meta tags with the configured values; server start fails when `CONTACT_EMAIL` or `SOURCE_URL` is missing or invalid. Server start also fails for `CONTACT_EMAIL=mailto:x@y.z`. E2E: footer takedown `href` equals exactly `mailto:` + the configured address; Source code `href` equals exactly `SOURCE_URL`; About link present.
 
 **Acceptance criteria**
 - All tests above pass.
@@ -407,6 +409,7 @@ LB-1, LB-2, LB-4, C-2.
 - Migration `server/src/db/migrations/001_scores.sql`: table `scores(id, difficulty, initials, time_ms, created_at)`, index on `(difficulty, time_ms, created_at)`. Uses the Phase 1 migration runner.
 - `shared/src/initials.ts`: `/^[A-Za-z]{3}$/`, normalize to upper case.
 - `server/src/routes/leaderboard.ts`:
+  - Both routes validate `:difficulty` against `shared/src/difficulty.ts` (Fastify route schema enum) and return 400 for any other value before any DB access.
   - `GET /api/leaderboard/:difficulty` returns Top 10 ordered by `time_ms` asc, then `created_at` asc.
   - `POST /api/leaderboard/:difficulty` body `{initials, timeMs}`. Checks: initials filter; `timeMs` is a positive integer (needed to store the value). No other checks (LB-4, C-2). Returns the new Top 10 and the new row id (or `null` if the row did not place).
   - Bounded storage: in one transaction, insert the row, then delete every row for that difficulty outside the Top 10. The table never holds more than 30 rows.
@@ -420,6 +423,7 @@ LB-1, LB-2, LB-4, C-2.
 - Integration: 12 submits on `medium` return 10 rows, fastest first; ties order by submit time; the table holds exactly 10 `medium` rows after the 12th submit.
 - Integration: `"AB"`, `"ABCD"`, `"A1C"` give 400; `"abc"` is stored as `ABC`.
 - Integration: boards are separate per difficulty.
+- Integration: GET and POST on `/api/leaderboard/extreme` return 400 and write no row.
 - Integration: data survives app restart on the same `DATA_DIR`.
 
 **Acceptance criteria**
@@ -721,7 +725,7 @@ Phases 9 and 10.
 | LIV-3 | 0 lives: level restart, lives 3, timer 0 | 4 | Lives unit test |
 | LIV-4 | Easy: slow, lower density | 4 | Difficulty table unit test |
 | LIV-5 | Medium baseline; Hard high speed, max density | 4 | Difficulty table unit test |
-| LIV-6 | Timer to the ms, stops at exit boundary | 3 | Timer unit test; traversal E2E |
+| LIV-6 | Timer to the ms, starts on first gameplay key (Q-4), stops at exit boundary | 3 | Timer unit test; traversal E2E |
 | LVL-1 | Zone 1 Storage Aisle content | 3 | Level review against spec |
 | LVL-2 | Zone 2 Dock and Truck Lot content | 3 | Level review |
 | LVL-3 | Zone 3 Receiving Bay, labeled shutter door exit | 3 | Level review; exit E2E |
@@ -845,3 +849,6 @@ No unresolved product decisions remain.
 | Blocklist bypass via `example.com.` or case or IDN forms | `canonicalHost` for entries, checks and cache keys |
 | Phase 7 needed SQLite before Phase 6 created it | DB wrapper and migration runner moved to Phase 1 |
 | Upload merge, enemy faces and Play again were unconfirmed | Confirmed by owner; moved to section 0.2 |
+| Timer start undefined in the spec | Owner decision Q-4: first gameplay key press |
+| `CONTACT_EMAIL` form ambiguous (`mailto:mailto:` risk) | Plain address only; client adds the scheme |
+| Leaderboard accepted any `:difficulty` | Enum validation, 400 before DB access |
