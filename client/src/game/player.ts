@@ -16,16 +16,19 @@ export class Player {
     this.body = makeBody(x - PLAYER_W / 2, y - PLAYER_H, PLAYER_W, PLAYER_H);
   }
 
-  update(held: (a: Action) => boolean, presses: readonly Action[], map: TileMap) {
+  /** Returns true when the player jumped this step. */
+  update(held: (a: Action) => boolean, presses: readonly Action[], map: TileMap): boolean {
     const b = this.body;
     const dir = (held('right') ? 1 : 0) - (held('left') ? 1 : 0);
     b.vx = dir * RUN_SPEED;
     if (dir !== 0) this.facing = dir as 1 | -1;
-    if (presses.includes('jump') && b.grounded) b.vy = -JUMP_SPEED;
+    const jumped = presses.includes('jump') && b.grounded;
+    if (jumped) b.vy = -JUMP_SPEED;
     if (presses.includes('drop') && b.grounded && b.onOneWay) this.dropSteps = DROP_STEPS;
     b.vy = applyGravity(b.vy);
     moveBody(b, map, this.dropSteps > 0);
     if (this.dropSteps > 0) this.dropSteps--;
+    return jumped;
   }
 
   get centerX(): number {
@@ -34,5 +37,10 @@ export class Player {
 
   get centerY(): number {
     return this.body.y + this.body.h / 2;
+  }
+
+  /** Gun muzzle in world pixels. */
+  get muzzle(): { x: number; y: number } {
+    return { x: this.centerX + this.facing * 8, y: this.body.y + 13 };
   }
 }

@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
-import { sliceFrames } from '../src/assets/loader.ts';
+import { loadFrames, sliceFrames } from '../src/assets/loader.ts';
+import { SHEETS } from '../src/assets/placeholders.ts';
 import {
   animationFrame,
   CLOTHING_RAMP,
@@ -73,4 +74,13 @@ test('sliceFrames cuts a one-row sheet', () => {
   const frames = sliceFrames(sheet, 2, 2);
   expect(frames).toHaveLength(2);
   expect(getPixel(frames[1]!, 0, 1)).toEqual([0, 255, 0, 255]);
+});
+
+describe('shipped sheets', () => {
+  test.each(SHEETS.map((s) => [s.id, s] as const))(
+    '%s follows the sprite contract',
+    async (_id, spec) => {
+      expect(validateSheet(spec, await loadFrames(spec))).toEqual([]);
+    },
+  );
 });

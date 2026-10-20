@@ -1,4 +1,7 @@
 import type { Rect } from '../engine/collision.ts';
+import type { EnemyKind } from '../game/enemies.ts';
+import type { Pickup } from '../game/pickups.ts';
+import { GROUP_SIZE, type SpawnPoint } from '../game/spawn.ts';
 import { ONEWAY, SOLID, TILE, TileMap } from './tilemap.ts';
 
 export type PropKind =
@@ -27,8 +30,10 @@ export interface Level {
   spawn: { x: number; y: number };
   /** Touching this rect stops the timer (LIV-6). */
   exit: Rect;
-  /** Pickup spots and enemy spawn points are added in Phase 4. */
   label: string;
+  spawns: SpawnPoint[];
+  /** Briefcase start state. The world copies these on every (re)start. */
+  pickups: readonly Pickup[];
 }
 
 export const COLS = 300;
@@ -114,11 +119,75 @@ export function buildLevel(): Level {
   map.fill(294, 0, COLS - 1, FLOOR - 1, SOLID);
   decor('wall', 294, 0, COLS - 294, FLOOR);
 
+  /** Top of the first solid tile in a column: the ground an enemy stands on. */
+  const groundAt = (tx: number) => {
+    for (let ty = 0; ty < ROWS; ty++) if (map.get(tx, ty) === SOLID) return ty * TILE;
+    return FLOOR * TILE;
+  };
+
+  // Enemy spawn points, 9 per zone. W = walker, S = shooter.
+  const spawnPlan: [number, EnemyKind][] = [
+    [14, 'walker'],
+    [22, 'walker'],
+    [31, 'shooter'],
+    [36, 'walker'],
+    [45, 'walker'],
+    [58, 'shooter'],
+    [66, 'walker'],
+    [79, 'shooter'],
+    [88, 'walker'],
+    [107, 'walker'],
+    [113, 'shooter'],
+    [120, 'walker'],
+    [130, 'walker'],
+    [146, 'shooter'],
+    [154, 'walker'],
+    [167, 'walker'],
+    [181, 'shooter'],
+    [196, 'walker'],
+    [202, 'walker'],
+    [215, 'shooter'],
+    [228, 'walker'],
+    [239, 'walker'],
+    [247, 'shooter'],
+    [258, 'walker'],
+    [268, 'walker'],
+    [278, 'shooter'],
+    [283, 'walker'],
+  ];
+  const spawns: SpawnPoint[] = spawnPlan.map(([tx, kind], id) => ({
+    id,
+    x: tx * TILE + TILE / 2,
+    y: groundAt(tx),
+    kind,
+    count: GROUP_SIZE[kind],
+  }));
+
+  // Briefcases, 2 or 3 per zone, floating at head height above the ground.
+  const pickupPlan: [number, Pickup['weapon']][] = [
+    [16, 'spread'],
+    [60, 'spread'],
+    [110, 'laser'],
+    [150, 'spread'],
+    [186, 'laser'],
+    [216, 'spread'],
+    [248, 'laser'],
+    [276, 'spread'],
+  ];
+  const pickups: Pickup[] = pickupPlan.map(([tx, weapon]) => ({
+    x: tx * TILE + TILE / 2,
+    y: groundAt(tx) - 26,
+    weapon,
+    taken: false,
+  }));
+
   return {
     map,
     props,
     spawn: { x: 3 * TILE, y: FLOOR * TILE },
     exit: px(286, 4, 8, 11),
     label: 'RECEIVING ZONE',
+    spawns,
+    pickups,
   };
 }

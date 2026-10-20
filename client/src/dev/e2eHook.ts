@@ -8,6 +8,8 @@ import { STEP_MS } from '../engine/loop.ts';
 export interface E2EHook {
   advance(frames: number): void;
   state(): unknown;
+  /** The live game world, for E2E bots. Undefined outside the game scene. */
+  world(): unknown;
 }
 
 declare global {
@@ -22,7 +24,7 @@ export function e2eMode(): 'off' | 'auto' | 'manual' {
   return v === 'manual' ? 'manual' : 'auto';
 }
 
-export function installE2EHook(loop: Loop, state: () => unknown) {
+export function installE2EHook(loop: Loop, state: () => unknown, world: () => unknown) {
   const mode = e2eMode();
   if (mode === 'off') return;
   loop.manual = mode === 'manual';
@@ -31,5 +33,6 @@ export function installE2EHook(loop: Loop, state: () => unknown) {
       for (let i = 0; i < frames; i++) loop.tick(STEP_MS);
     },
     state,
+    world,
   };
 }

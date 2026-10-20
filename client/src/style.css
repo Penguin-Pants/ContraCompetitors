@@ -81,3 +81,58 @@ body {
   border-bottom: 0.15em solid var(--primary);
   font-variant-numeric: tabular-nums;
 }
+
+.hud-lives {
+  color: var(--primary);
+  letter-spacing: 0.2em;
+}
+
+.hud-weapon {
+  opacity: 0.85;
+}
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1em;
+  background: rgb(8 10 16 / 0.78);
+  font-size: 1.6em;
+}
+
+.overlay[hidden] {
+  display: none;
+}
+
+.overlay h2 {
+  margin: 0;
+  font-size: 1.6em;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.menu-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5em;
+  min-width: 14em;
+}
+
+.menu-button {
+  font: inherit;
+  padding: 0.4em 1em;
+  color: var(--ui-text);
+  background: #1a1f2b;
+  border: 0.12em solid #3a4150;
+  cursor: pointer;
+}
+
+.menu-button:focus-visible,
+.menu-button:hover {
+  outline: none;
+  border-color: var(--primary);
+  background: #232a39;
+}

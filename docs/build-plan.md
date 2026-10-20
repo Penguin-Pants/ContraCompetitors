@@ -903,7 +903,7 @@ Review method per phase: two passes on the full phase diff. Pass 1 checks covera
 | 1 Scaffold and CI | ✅ Done | Vitest health + 5 migration-runner cases; Playwright home page; `npm start` serves client and `/api/health` | CI green on GitHub is confirmed on the PR |
 | 2 Renderer, input, loop | ✅ Done | Unit: scale `k` table, input map (arrows ignored), rotation, loop freeze, camera snap, manifest contract. E2E: pixel blocks at k=1 and k=2 with a 30 degree sprite (fails when `image-rendering` is not `pixelated`); narrow guard show, freeze, hide. Lint rule blocks `imageSmoothingEnabled = true`. | None |
 | 3 Level, movement, timer | ✅ Done | Unit: one-way land, drop and solid block; timer format, stop and Q-4 start rules; zone order and labeled exit; headless bot traversal 52.4 s (40 to 70 s). E2E: scripted run to the exit with a stopped timer; arrow keys do nothing. | Pacing re-tuned in Phase 4 with combat |
-| 4 Combat, enemies, pause | Not started | | |
+| 4 Combat, enemies, pause | ⚠️ Done except manual playtest | Unit: spread symmetry, laser wall stop and pierce, invulnerability, lost life resets weapon, 0 lives full reset, pickups, nested difficulty spawn sets, 2 to 3 briefcases per zone, exit with enemies alive. Combat-bot pacing proxy: Easy 59.8 s, Medium 63.6 s, Hard 67.1 s (unit test guards Medium in 60 to 120 s). E2E: pause freeze 2 s and resume, Restart level, pixel blocks during laser + particles + rotated projectiles. | Manual playtest: 3 Medium runs by a competent human player, times recorded in the PR (agent cannot do this) |
 | 5 Theming, faces, menus | Not started | | |
 | 6 Leaderboard backend | Not started | | |
 | 7 Secure fetch, blocklist | Not started | | |
@@ -925,6 +925,11 @@ Review method per phase: two passes on the full phase diff. Pass 1 checks covera
 - Phase 3: level is 300 x 17 tiles of 16 art px (4,800 px). Run speed 1.5 art px per step (90 px/s), jump apex about 58 px. Every ground obstacle is at most 2 tiles above the ground the player stands on, so the floor route works with jumps only. Racks, trailer roofs, containers and conveyors are optional upper tiers.
 - Phase 3: the world (player and, from Phase 4, enemies) holds still until the first gameplay key. This keeps Q-4 consistent: nothing can happen to the player before the timer runs. Engineering choice, not a product change.
 - Phase 3: props are code-drawn placeholders until Phase 10. The exit sign uses a 3 x 5 pixel font on L1.
+
+- Phase 4: each spawn point releases a small group (walkers 3, shooters 2, 26 px apart). Single enemies died before they reached the player, so combat added only about 2 s on Medium. Enemy HP stays at the planned 2 and 3.
+- Phase 4: enemies jump when blocked by a wall. A walker that cannot clear a tall stack hops in place, which a player can pass or shoot.
+- Phase 4: the combat bot (`client/test/helpers/combatBot.ts`) is one decision function used by the unit pacing test and by the E2E scripted run (its source is sent into the page). The `?e2e` hook exposes `world()` for this.
+- Phase 4: pause menu keys are Tab or W/S to move, Enter to choose and Esc to resume. Arrow keys stay unused (CTL-2).
 
 ### 7.2 Proposed out-of-scope fixes
 

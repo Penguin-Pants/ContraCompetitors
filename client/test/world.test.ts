@@ -68,7 +68,7 @@ describe('level', () => {
   });
 
   test('scripted traversal with no enemies reaches the exit in 40 to 70 s and stops the timer', () => {
-    const w = new World(buildLevel());
+    const w = new World({ ...buildLevel(), spawns: [] });
     traverse(w);
     expect(w.finished).toBe(true);
     expect(w.timer.state).toBe('stopped');

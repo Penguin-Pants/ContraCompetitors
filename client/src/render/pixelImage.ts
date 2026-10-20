@@ -73,3 +73,17 @@ export function scaleInt(img: PixelImage, n: number): PixelImage {
   }
   return out;
 }
+
+/** Same shape, every visible pixel set to one color. Used for the pixel-hit flash. */
+export function silhouette(img: PixelImage, hex: string): PixelImage {
+  const [r, g, b] = parseHex(hex);
+  const out = createImage(img.w, img.h);
+  for (let i = 0; i < img.data.length; i += 4) {
+    if (img.data[i + 3]! === 0) continue;
+    out.data[i] = r;
+    out.data[i + 1] = g;
+    out.data[i + 2] = b;
+    out.data[i + 3] = 255;
+  }
+  return out;
+}

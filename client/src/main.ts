@@ -8,7 +8,13 @@ import type { Scene, SceneContext } from './scenes/scene.ts';
 import { createTestScene } from './scenes/testScene.ts';
 import { createGameScene } from './scenes/gameScene.ts';
 import { loadSheet } from './assets/loader.ts';
-import { PLAYER_SHEET } from './assets/placeholders.ts';
+import {
+  BRIEFCASE_SHEET,
+  PLAYER_SHEET,
+  SHOOTER_SHEET,
+  WALKER_SHEET,
+} from './assets/placeholders.ts';
+import { isDifficulty } from '@lr/shared/difficulty';
 import { NarrowGuard } from './ui/narrowGuard.ts';
 
 const app = document.getElementById('app')!;
@@ -28,10 +34,19 @@ relayout();
 
 const ctx: SceneContext = { layers, pixels, input };
 const params = new URLSearchParams(location.search);
+const difficultyParam = params.get('difficulty');
 const scene: Scene =
   params.get('scene') === 'test'
     ? createTestScene(ctx)
-    : createGameScene(ctx, { player: await loadSheet(PLAYER_SHEET) });
+    : createGameScene(ctx, {
+        sheets: {
+          player: await loadSheet(PLAYER_SHEET),
+          walker: await loadSheet(WALKER_SHEET),
+          shooter: await loadSheet(SHOOTER_SHEET),
+          briefcase: await loadSheet(BRIEFCASE_SHEET),
+        },
+        difficulty: isDifficulty(difficultyParam) ? difficultyParam : 'medium',
+      });
 
 const loop = new Loop({
   update: (ms) => scene.update(ms),
@@ -39,9 +54,13 @@ const loop = new Loop({
   render: () => scene.render(),
   isFrozen: () => guard.active || scene.paused(),
 });
-installE2EHook(loop, () => ({
-  k: layers.scale.k,
-  narrow: layers.scale.narrow,
-  scene: scene.state(),
-}));
+installE2EHook(
+  loop,
+  () => ({
+    k: layers.scale.k,
+    narrow: layers.scale.narrow,
+    scene: scene.state(),
+  }),
+  () => scene.world?.(),
+);
 loop.start();
