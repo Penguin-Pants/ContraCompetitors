@@ -66,4 +66,18 @@ describe('Input', () => {
     input.onKeyDown(key('KeyA'));
     expect(input.isHeld('left')).toBe(false);
   });
+
+  test('keys pressed while the narrow guard blocks input never reach play after it closes', () => {
+    const input = new Input();
+    input.onKeyDown(key('KeyA'));
+    input.setBlocked(true);
+    expect(input.isHeld('left')).toBe(false);
+    input.onKeyDown(key('KeyD'));
+    input.onKeyDown(key('KeyW'));
+    input.setBlocked(false);
+    expect(input.isHeld('right')).toBe(false);
+    expect(input.takePresses()).toEqual([]);
+    input.onKeyDown(key('KeyD'));
+    expect(input.takePresses()).toEqual(['right']);
+  });
 });

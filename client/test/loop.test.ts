@@ -15,11 +15,22 @@ test('runs fixed steps for the elapsed time and reports real time', () => {
   expect(h.render).toHaveBeenCalledTimes(1);
 });
 
-test('clamps long frames', () => {
+test('a long frame simulates at most MAX_FRAME_MS but the timer gets the full real time', () => {
   const h = handlers();
   new Loop(h).tick(5000);
   expect(h.update).toHaveBeenCalledTimes(Math.round(MAX_FRAME_MS / STEP_MS));
-  expect(h.frame).toHaveBeenCalledWith(MAX_FRAME_MS);
+  expect(h.frame).toHaveBeenCalledWith(5000);
+});
+
+test('the frame time is reported before the steps, so a step that stops the timer keeps it', () => {
+  const order: string[] = [];
+  const h = {
+    ...handlers(),
+    update: vi.fn(() => order.push('update')),
+    frame: vi.fn(() => order.push('frame')),
+  };
+  new Loop(h).tick(STEP_MS * 2);
+  expect(order).toEqual(['frame', 'update', 'update']);
 });
 
 test('frozen loop renders but runs no step and adds no time', () => {
@@ -42,10 +53,13 @@ test('camera snaps to whole art pixels and clamps to the world', () => {
   expect(cam.y).toBe(0);
 });
 
-test('a pause during the steps adds no real time for that frame', () => {
+test('a pause during the steps stops the steps; the next frozen frame adds no time', () => {
   let frozen = false;
   const h = { ...handlers(() => frozen), update: vi.fn(() => (frozen = true)) };
-  new Loop(h).tick(STEP_MS * 3);
+  const loop = new Loop(h);
+  loop.tick(STEP_MS * 3);
   expect(h.update).toHaveBeenCalledTimes(1);
-  expect(h.frame).not.toHaveBeenCalled();
+  expect(h.frame).toHaveBeenCalledTimes(1);
+  loop.tick(100);
+  expect(h.frame).toHaveBeenCalledTimes(1);
 });

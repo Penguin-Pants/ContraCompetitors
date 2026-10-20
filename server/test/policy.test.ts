@@ -7,7 +7,7 @@ import { createApp } from '../src/app.ts';
 import { openDb } from '../src/db/db.ts';
 import { canonicalHost } from '../src/net/hostname.ts';
 import { Blocklist } from '../src/policy/blocklist.ts';
-import { hashIp, HOUR_MS, RateLimiter } from '../src/policy/rateLimit.ts';
+import { hashIp, HOUR_MS, RateLimiter, rateKey } from '../src/policy/rateLimit.ts';
 import { tempDir, testConfig } from './helpers/app.ts';
 
 const ROOT = path.resolve(import.meta.dirname, '../..');
@@ -83,6 +83,26 @@ describe('rate limit', () => {
     now = HOUR_MS + 1;
     expect(limiter.tryConsume('203.0.113.7')).toBe(true);
     expect(db.prepare('SELECT COUNT(*) FROM rate_events').pluck().get()).toBeLessThanOrEqual(6);
+  });
+
+  test.each([
+    ['203.0.113.7', '203.0.113.7'],
+    ['::ffff:203.0.113.7', '203.0.113.7'],
+    ['2001:db8:1:2:3:4:5:6', '2001:db8:1:2::/64'],
+    ['2001:db8:1:2::ffff', '2001:db8:1:2::/64'],
+    ['2001:db8:1:3::1', '2001:db8:1:3::/64'],
+  ])('rate key of %s is %s', (ip, key) => {
+    expect(rateKey(ip)).toBe(key);
+  });
+
+  test('rotating IPv6 addresses inside one /64 shares one budget; IPv4-mapped shares with IPv4', () => {
+    const db = openDb(tempDir());
+    const limiter = new RateLimiter(db, 'ingest', 5, () => 0);
+    for (let i = 1; i <= 5; i++) expect(limiter.tryConsume(`2001:db8:1:2::${i}`)).toBe(true);
+    expect(limiter.tryConsume('2001:db8:1:2:ffff:ffff:ffff:ffff')).toBe(false);
+    expect(limiter.tryConsume('2001:db8:1:3::1')).toBe(true);
+    for (let i = 0; i < 5; i++) expect(limiter.tryConsume('203.0.113.9')).toBe(true);
+    expect(limiter.tryConsume('::ffff:203.0.113.9')).toBe(false);
   });
 
   test('stores a SHA-256 of the IP, never the IP', () => {

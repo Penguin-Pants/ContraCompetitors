@@ -88,3 +88,13 @@ describe('tint', () => {
     expect([...r].sort((a, b) => a - b)).toEqual(r);
   });
 });
+
+test.each([[['#ffffff', '#ffffff']], [['#ffffff']], [['#fefefe', '#ffffff']]])(
+  'white input %j still gives two distinct readable colors',
+  (input) => {
+    const t = makeReadable(input);
+    expect(colorDistance(t.primary, t.secondary)).toBeGreaterThanOrEqual(MIN_DISTANCE);
+    expect(minContrast(t.primary)).toBeGreaterThanOrEqual(MIN_CONTRAST);
+    expect(minContrast(t.secondary)).toBeGreaterThanOrEqual(MIN_CONTRAST);
+  },
+);

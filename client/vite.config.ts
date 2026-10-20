@@ -7,7 +7,8 @@ export default defineConfig(({ mode }) => {
     envDir: '..',
     server: {
       port: 5173,
-      proxy: { '/api': 'http://localhost:3000' },
+      // Same PORT as the dev server process (root .env, default 3000).
+      proxy: { '/api': `http://localhost:${env.PORT || '3000'}` },
     },
     build: { outDir: 'dist', emptyOutDir: true },
     plugins: [

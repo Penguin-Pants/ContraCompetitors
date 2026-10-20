@@ -86,7 +86,7 @@ export class EntityRenderer {
       if (!alive && e.defeatSteps > DEFEAT_STEPS - 10 && e.defeatSteps % 2) continue;
       const surfaces = flashing ? this.flash.get(sheet)! : sheet.surfaces;
       const fx = Math.round(e.body.x) - cam.x - 2;
-      const fy = Math.round(e.body.y + e.body.h) - cam.y - sheet.spec.frameH;
+      const fy = Math.round(e.body.y + e.body.h) - cam.y - sheet.feet[frame]!;
       const flip = e.facing < 0;
       p.sprite(surfaces[frame]!, fx, fy, flip);
       if (!alive) continue;

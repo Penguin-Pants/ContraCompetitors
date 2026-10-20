@@ -43,6 +43,16 @@ describe('leaderboard', () => {
     expect(r2.rows).toHaveLength(1);
   });
 
+  test('a known submissionId posted under another difficulty returns no row id and adds no row', async () => {
+    const { app: a } = await make();
+    const body = run('JMD', 70_000);
+    const r1 = (await submit(a, 'medium', body)).json() as SubmitScoreResponse;
+    expect(r1.rowId).not.toBeNull();
+    const r2 = (await submit(a, 'hard', body)).json() as SubmitScoreResponse;
+    expect(r2.rowId).toBeNull();
+    expect(r2.rows).toEqual([]);
+  });
+
   test('12 submits return 10 rows fastest first, ties by submit time; table holds 10 medium rows', async () => {
     const { app: a, config } = await make();
     const times = [90, 80, 70, 60, 50, 40, 30, 20, 10, 55, 55, 100].map((s) => s * 1000);

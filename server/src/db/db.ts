@@ -51,8 +51,14 @@ export function runMigrations(db: Db, dir: string = MIGRATIONS_DIR, hooks: Migra
 export function openDb(dataDir: string, migrationsDir: string = MIGRATIONS_DIR): Db {
   fs.mkdirSync(dataDir, { recursive: true });
   const db = new Database(path.join(dataDir, 'app.db'));
-  db.pragma('journal_mode = WAL');
-  db.pragma('foreign_keys = ON');
-  runMigrations(db, migrationsDir);
+  try {
+    db.pragma('journal_mode = WAL');
+    db.pragma('foreign_keys = ON');
+    runMigrations(db, migrationsDir);
+  } catch (err) {
+    // A failed start must not keep the file handle open.
+    db.close();
+    throw err;
+  }
   return db;
 }

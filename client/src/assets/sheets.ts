@@ -14,7 +14,7 @@ export async function loadBaseSheets(): Promise<GameSheets> {
 
 function tintSheet(sheet: LoadedSheet, theme: Theme): LoadedSheet {
   const images = sheet.images.map((img) => tintImage(img, theme));
-  return { spec: sheet.spec, images, surfaces: images.map(toSurface) };
+  return { ...sheet, images, surfaces: images.map(toSurface) };
 }
 
 /** Recolors the reserved ramps once per theme (THM-1, THM-2). */

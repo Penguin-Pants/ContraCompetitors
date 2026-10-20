@@ -24,7 +24,7 @@ window.addEventListener('pointerdown', () => audio.unlock());
 const relayout = () => {
   layoutLayers(layers, window.innerWidth, window.innerHeight, window.devicePixelRatio || 1);
   guard.update(layers.scale.narrow);
-  if (guard.active) input.clear();
+  input.setBlocked(guard.active);
 };
 window.addEventListener('resize', relayout);
 relayout();

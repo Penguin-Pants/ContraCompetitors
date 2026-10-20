@@ -1,10 +1,26 @@
 import { createHash } from 'node:crypto';
+import ipaddr from 'ipaddr.js';
 import type { Db } from '../db/db.ts';
 
 export const HOUR_MS = 60 * 60 * 1000;
 
+/**
+ * The rate-limit bucket of an address. IPv4 is the full address (an IPv4-mapped IPv6 address
+ * counts as its IPv4 address). IPv6 is its /64: one subscriber usually holds a whole /64, so
+ * rotating the low 64 bits must not give new slots.
+ */
+export function rateKey(ip: string): string {
+  if (!ipaddr.isValid(ip)) return ip;
+  let addr = ipaddr.parse(ip);
+  if (addr.kind() === 'ipv6' && (addr as ipaddr.IPv6).isIPv4MappedAddress())
+    addr = (addr as ipaddr.IPv6).toIPv4Address();
+  if (addr.kind() === 'ipv4') return addr.toString();
+  const parts = (addr as ipaddr.IPv6).parts.slice(0, 4);
+  return `${new ipaddr.IPv6([...parts, 0, 0, 0, 0]).toString()}/64`;
+}
+
 export function hashIp(ip: string): string {
-  return createHash('sha256').update(ip).digest('hex');
+  return createHash('sha256').update(rateKey(ip)).digest('hex');
 }
 
 /**

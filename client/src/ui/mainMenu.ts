@@ -30,10 +30,13 @@ function radioGroup(name: string, legend: string, values: readonly string[], che
   );
 }
 
-/** Adds https:// when the user leaves out the scheme. The server validates the URL. */
+/**
+ * Adds https:// when the user leaves out the scheme. A colon followed by a digit is a port
+ * (`example.com:8443`), not a scheme. The server validates the URL.
+ */
 export function normalizeUrl(raw: string): string {
   const v = raw.trim();
-  return /^[a-z][a-z0-9+.-]*:/i.test(v) ? v : `https://${v}`;
+  return /^[a-z][a-z0-9+.-]*:(?!\d)/i.test(v) ? v : `https://${v}`;
 }
 
 /** Main menu on L3 (ING-1, ING-2). Face style is not persisted; it shows Auto on every visit (D-4). */

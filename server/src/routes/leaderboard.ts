@@ -53,8 +53,10 @@ export function leaderboardRoutes(app: FastifyInstance, db: Db, clock: () => num
 
   const submit = db.transaction(
     (d: Difficulty, body: SubmitScoreRequest, initials: string): number | null => {
-      const known = bySubmission.get(body.submissionId) as { id: number } | undefined;
-      if (known) return known.id;
+      const known = bySubmission.get(body.submissionId) as
+        { id: number; difficulty: Difficulty } | undefined;
+      // A retry under another difficulty: that row is not on this board, so no row id.
+      if (known) return known.difficulty === d ? known.id : null;
       const id = Number(
         insert.run(body.submissionId, d, initials, body.timeMs, clock()).lastInsertRowid,
       );

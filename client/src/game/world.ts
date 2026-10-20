@@ -157,7 +157,7 @@ export class World {
     this.gameOver = false;
     this.weapon = 'pistol';
     this.cooldown = 0;
-    this.player = new Player(this.level.spawn.x, this.level.spawn.y);
+    this.player = new Player(this.level.spawn.x, this.level.spawn.y, this.level.map);
     this.enemies = [];
     this.projectiles = [];
     this.pickups = this.level.pickups.map((p) => ({ ...p, taken: false }));

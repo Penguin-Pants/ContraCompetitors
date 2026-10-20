@@ -75,6 +75,14 @@ function separate(primary: string, secondary: string, backdrops: readonly string
     const cand = ensureContrast(toHex({ ...s, l: Math.min(1, s.l + dl) }), backdrops);
     if (colorDistance(primary, cand) >= MIN_DISTANCE) return cand;
   }
+  // A primary at the top of the lightness range (white): search lower readable lightness.
+  for (let l = Math.min(1, s.l); l >= 0; l -= 0.02) {
+    for (let step = 0; step < 18; step++) {
+      const cand = toHex({ ...s, l, c: chroma, h: (s.h! + step * 20) % 360 });
+      if (minContrast(cand, backdrops) < MIN_CONTRAST) continue;
+      if (colorDistance(primary, cand) >= MIN_DISTANCE) return cand;
+    }
+  }
   return '#ffffff';
 }
 

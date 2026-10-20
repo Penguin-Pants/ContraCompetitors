@@ -11,9 +11,16 @@ export class Player {
   facing: 1 | -1 = 1;
   private dropSteps = 0;
 
-  /** (x, y) is the bottom center (feet). */
-  constructor(x: number, y: number) {
+  /**
+   * (x, y) is the bottom center (feet). With a map, the body settles onto the ground first, so a
+   * jump as the very first input is not lost to an unset `grounded` flag.
+   */
+  constructor(x: number, y: number, map?: TileMap) {
     this.body = makeBody(x - PLAYER_W / 2, y - PLAYER_H, PLAYER_W, PLAYER_H);
+    if (map) {
+      this.body.vy = applyGravity(0);
+      moveBody(this.body, map, false);
+    }
   }
 
   /** Returns true when the player jumped this step. */

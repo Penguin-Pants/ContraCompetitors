@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
-import { loadFrames, sliceFrames } from '../src/assets/loader.ts';
-import { SHEETS } from '../src/assets/placeholders.ts';
+import { feetRow, loadFrames, loadSheet, sliceFrames } from '../src/assets/loader.ts';
+import { PLAYER_SHEET, SHEETS, WALKER_SHEET } from '../src/assets/placeholders.ts';
 import {
   animationFrame,
   CLOTHING_RAMP,
@@ -83,4 +83,19 @@ describe('shipped sheets', () => {
       expect(validateSheet(spec, await loadFrames(spec))).toEqual([]);
     },
   );
+});
+
+test('loadSheet rejects a sheet that breaks the contract, with the contract errors', async () => {
+  const spec = enemySpec({ animations: { walk: { frames: [0, 3], fps: 8, loop: true } } });
+  await expect(loadSheet(spec)).rejects.toThrow('walker.walk: frame 3 out of range');
+});
+
+test('feetRow is the row below the lowest opaque pixel, so transparent padding does not lift feet', async () => {
+  expect(feetRow(enemyFrame())).toBe(3);
+  expect(feetRow(fromRows(['.k.', '...', '...'], { k: '#101010' }))).toBe(1);
+  expect(feetRow(fromRows(['...'], {}))).toBe(1);
+  const [stand] = await loadFrames(PLAYER_SHEET);
+  expect(feetRow(stand!)).toBe(29);
+  const [walk] = await loadFrames(WALKER_SHEET);
+  expect(feetRow(walk!)).toBe(19);
 });

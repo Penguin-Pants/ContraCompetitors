@@ -1,11 +1,17 @@
 export const STEP_MS = 1000 / 60;
-/** Largest real frame delta that is simulated. Longer gaps (tab switch, debugger) are dropped. */
+/**
+ * Largest real frame delta that is simulated. Longer gaps (tab switch, debugger) are not
+ * simulated, but the run timer still gets the full real time.
+ */
 export const MAX_FRAME_MS = 250;
 
 export interface LoopHandlers {
   /** Fixed 60 Hz simulation step. */
   update(stepMs: number): void;
-  /** Real elapsed time of a frame that was not frozen. The run timer uses this. */
+  /**
+   * Real elapsed time since the last frame, when the frame starts unfrozen. Called before the
+   * steps, so the steps of this frame (exit, pause) cannot drop time that already passed.
+   */
   frame(realMs: number): void;
   render(): void;
   isFrozen(): boolean;
@@ -41,11 +47,12 @@ export class Loop {
   }
 
   tick(realMs: number) {
-    const dt = Math.min(Math.max(0, realMs), MAX_FRAME_MS);
+    const real = Math.max(0, realMs);
     if (this.h.isFrozen()) {
       this.acc = 0;
     } else {
-      this.acc += dt;
+      this.h.frame(real);
+      this.acc += Math.min(real, MAX_FRAME_MS);
       while (this.acc >= STEP_MS) {
         this.h.update(STEP_MS);
         this.acc -= STEP_MS;
@@ -54,7 +61,6 @@ export class Loop {
           break;
         }
       }
-      if (!this.h.isFrozen()) this.h.frame(dt);
     }
     this.h.render();
   }

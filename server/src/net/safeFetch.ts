@@ -197,7 +197,13 @@ export async function safeFetch(
       const location = res.headers.location;
       if (res.statusCode >= 300 && res.statusCode < 400 && typeof location === 'string') {
         await res.body.dump();
-        const next = new URL(location, target.url);
+        let next: URL;
+        try {
+          next = new URL(location, target.url);
+        } catch {
+          // The remote server controls this header: a bad value is a fetch error, not a 500.
+          throw new FetchError('unreachable', `${target.host}: bad redirect location`);
+        }
         if (opts.singleHop) {
           return {
             url: target.url.href,

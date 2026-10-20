@@ -1,7 +1,7 @@
 import type { Rect } from '../engine/collision.ts';
-import type { EnemyKind } from '../game/enemies.ts';
+import { ENEMY_H, ENEMY_W, type EnemyKind } from '../game/enemies.ts';
 import type { Pickup } from '../game/pickups.ts';
-import { GROUP_SIZE, type SpawnPoint } from '../game/spawn.ts';
+import { GROUP_GAP, GROUP_SIZE, type SpawnPoint } from '../game/spawn.ts';
 import { ONEWAY, SOLID, TILE, TileMap } from './tilemap.ts';
 
 export type PropKind =
@@ -155,13 +155,29 @@ export function buildLevel(): Level {
     [278, 'shooter'],
     [283, 'walker'],
   ];
-  const spawns: SpawnPoint[] = spawnPlan.map(([tx, kind], id) => ({
-    id,
-    x: tx * TILE + TILE / 2,
-    y: groundAt(tx),
-    kind,
-    count: GROUP_SIZE[kind],
-  }));
+  /** True when no member of a group led from column `tx` overlaps a solid tile. */
+  const groupClear = (tx: number, count: number) => {
+    const y = groundAt(tx);
+    const top = Math.floor((y - ENEMY_H) / TILE);
+    const bottom = Math.ceil(y / TILE) - 1;
+    for (let i = 0; i < count; i++) {
+      const left = tx * TILE + TILE / 2 + i * GROUP_GAP - ENEMY_W / 2;
+      for (let cx = Math.floor(left / TILE); cx <= Math.floor((left + ENEMY_W - 1) / TILE); cx++)
+        for (let cy = top; cy <= bottom; cy++) if (map.get(cx, cy) === SOLID) return false;
+    }
+    return true;
+  };
+  /** Moves a planned column to the nearest one where the whole group stands in open space. */
+  const clearColumn = (tx: number, count: number) => {
+    for (let d = 0; d <= 12; d++)
+      for (const c of [tx + d, tx - d]) if (groupClear(c, count)) return c;
+    throw new Error(`no open space for the enemy group at column ${tx}`);
+  };
+  const spawns: SpawnPoint[] = spawnPlan.map(([planned, kind], id) => {
+    const count = GROUP_SIZE[kind];
+    const tx = clearColumn(planned, count);
+    return { id, x: tx * TILE + TILE / 2, y: groundAt(tx), kind, count };
+  });
 
   // Briefcases, 2 or 3 per zone, floating at head height above the ground.
   const pickupPlan: [number, Pickup['weapon']][] = [

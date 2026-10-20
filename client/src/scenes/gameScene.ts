@@ -162,12 +162,12 @@ export function createGameScene(
     const sheet = sheets.player;
     const anims = sheet.spec.animations;
     const anim = !b.grounded ? anims.jump! : b.vx !== 0 ? anims.run! : anims.idle!;
-    const surface = sheet.surfaces[animationFrame(anim, animMs)]!;
+    const frame = animationFrame(anim, animMs);
     const cam = world.camera;
     ctx.pixels.sprite(
-      surface,
+      sheet.surfaces[frame]!,
       Math.round(b.x) - cam.x - 2,
-      Math.round(b.y) - cam.y - 2,
+      Math.round(b.y + b.h) - cam.y - sheet.feet[frame]!,
       pl.facing < 0,
     );
   };

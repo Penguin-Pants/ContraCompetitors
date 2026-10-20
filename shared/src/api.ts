@@ -31,6 +31,7 @@ export const API_ERROR_CODES = [
   'blocked_domain',
   'rate_limited',
   'bad_request',
+  'not_found',
   'upload_rejected',
   'internal',
 ] as const;

@@ -60,6 +60,18 @@ describe('runMigrations', () => {
       '003_later.sql': 'CREATE TABLE later (v INTEGER);',
     });
     expect(() => openDb(dataDir, dir)).toThrow();
+    // The failed open closed its handle (Linux: no open file descriptor on app.db).
+    const open = fs
+      .readdirSync('/proc/self/fd')
+      .map((fd) => {
+        try {
+          return fs.readlinkSync(`/proc/self/fd/${fd}`);
+        } catch {
+          return '';
+        }
+      })
+      .filter((target) => target.startsWith(path.join(dataDir, 'app.db')));
+    expect(open).toEqual([]);
     const db = new Database(path.join(dataDir, 'app.db'));
     expect(tables(db)).not.toContain('half');
     expect(tables(db)).not.toContain('later');

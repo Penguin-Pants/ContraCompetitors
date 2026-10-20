@@ -36,6 +36,7 @@ beforeAll(async () => {
   });
   for (let i = 0; i < 7; i++) site.route(`/hop${i}`, redirect(`/hop${i + 1}`));
   site.route('/hop7', html('end'));
+  site.route('/bad-location', redirect('http://[bad'));
 });
 
 afterAll(async () => {
@@ -164,6 +165,15 @@ describe('safeFetch', () => {
     const res = await safeFetch(url('/hop2'), { kind: 'html' }, policy());
     expect(res.body.toString()).toBe('end');
     expect(await code(safeFetch(url('/hop1'), { kind: 'html' }, policy()))).toBe('unreachable');
+  });
+
+  test('an unparseable Location header is unreachable, not a TypeError', async () => {
+    expect(await code(safeFetch(url('/bad-location'), { kind: 'html' }, policy()))).toBe(
+      'unreachable',
+    );
+    expect(
+      await code(safeFetch(url('/bad-location'), { kind: 'any', singleHop: true }, policy())),
+    ).toBe('unreachable');
   });
 
   test('single-hop mode returns the 3xx with its location', async () => {

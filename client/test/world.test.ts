@@ -1,7 +1,10 @@
 import { describe, expect, test } from 'vitest';
 import { STEP_MS } from '../src/engine/loop.ts';
 import { World } from '../src/game/world.ts';
+import { ENEMY_H, ENEMY_W } from '../src/game/enemies.ts';
+import { GROUP_GAP } from '../src/game/spawn.ts';
 import { buildLevel } from '../src/level/levelData.ts';
+import { SOLID, TILE } from '../src/level/tilemap.ts';
 import { ZONES } from '../src/level/zones.ts';
 import { traverse } from './helpers/bot.ts';
 
@@ -41,6 +44,14 @@ describe('timer start (Q-4)', () => {
     expect(w.player.body.x).toBe(x);
   });
 
+  test.each(['first load', 'after a restart'])('W as the first input jumps (%s)', (when) => {
+    const w = new World(buildLevel());
+    if (when === 'after a restart') w.restart();
+    w.step(none, ['jump']);
+    expect(w.takeEvents()).toContainEqual({ type: 'jump' });
+    expect(w.player.body.vy).toBeLessThan(0);
+  });
+
   test('restart returns the timer to waiting', () => {
     const w = new World(buildLevel());
     w.step(none, ['right']);
@@ -52,6 +63,20 @@ describe('timer start (Q-4)', () => {
 });
 
 describe('level', () => {
+  test('every spawn group member stands in open space', () => {
+    const lvl = buildLevel();
+    const inside: string[] = [];
+    for (const sp of lvl.spawns)
+      for (let i = 0; i < sp.count; i++) {
+        const x0 = sp.x + i * GROUP_GAP - ENEMY_W / 2;
+        for (let px = x0; px < x0 + ENEMY_W; px += 2)
+          for (let py = sp.y - ENEMY_H; py < sp.y; py += 2)
+            if (lvl.map.get(Math.floor(px / TILE), Math.floor(py / TILE)) === SOLID)
+              inside.push(`spawn ${sp.id} member ${i}`);
+      }
+    expect([...new Set(inside)]).toEqual([]);
+  });
+
   test('three zones in order cover the level and the exit is the labeled shutter door in zone 3', () => {
     const level = buildLevel();
     expect(ZONES.map((z) => z.name)).toEqual([

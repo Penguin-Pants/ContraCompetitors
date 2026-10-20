@@ -29,6 +29,17 @@ export class Input {
   private readonly listeners = new Set<(action: Action) => void>();
   /** When false, game keys are not captured (for example while a text field has focus). */
   enabled = true;
+  private blocked = false;
+
+  /**
+   * While blocked (narrow-window guard, E-12) no key is taken. Held keys and queued presses are
+   * dropped when the block starts and when it ends, so nothing pressed while blocked reaches play.
+   */
+  setBlocked(blocked: boolean) {
+    if (blocked === this.blocked) return;
+    this.blocked = blocked;
+    this.clear();
+  }
 
   attach(target: Window): () => void {
     const down = (e: KeyboardEvent) => this.onKeyDown(e);
@@ -45,7 +56,7 @@ export class Input {
   }
 
   onKeyDown(e: Pick<KeyboardEvent, 'code' | 'repeat' | 'preventDefault'>) {
-    if (!this.enabled) return;
+    if (!this.enabled || this.blocked) return;
     const action = actionForCode(e.code);
     if (!action) return;
     if (action === 'fire') e.preventDefault();

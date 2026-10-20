@@ -24,7 +24,9 @@ Requires Node 22 (see `.nvmrc`, at least 22.19). The server runs TypeScript dire
 | `npm run e2e` | Playwright tests. Builds the client and starts the server on port 4173. |
 | `npm run lint` | ESLint and Prettier check |
 | `npm run typecheck` | `tsc` for `shared`, `server`, `client` and `e2e` |
-| `npm run blocklist -- add\|remove\|list [domain]` | Manages the domain blocklist in `DATA_DIR` (see `docs/operations.md`) |
+| `npm run blocklist -- add example.com` | Adds a domain to the blocklist in `DATA_DIR` (see `docs/operations.md`) |
+| `npm run blocklist -- remove example.com` | Removes a domain from the blocklist |
+| `npm run blocklist -- list` | Lists the blocked domains |
 
 ## Environment variables
 

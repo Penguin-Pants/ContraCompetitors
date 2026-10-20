@@ -51,6 +51,20 @@ describe('rotatePixels', () => {
     expect(Array.from(out.data)).toEqual(Array.from(src.data));
   });
 
+  test.each([0.3, Math.PI / 4, 1, 2.5])(
+    'a 1x1 sprite and a 1-pixel line keep every color at %f rad',
+    (angle) => {
+      const dot = fromRows(['r'], PAL);
+      expect(colors(rotatePixels(dot, angle))).toEqual(colors(dot));
+      const line = fromRows(['rgbrgbrg'], PAL);
+      const out = rotatePixels(line, angle);
+      let opaque = 0;
+      for (let i = 3; i < out.data.length; i += 4) if (out.data[i]! > 0) opaque++;
+      expect(opaque).toBeGreaterThanOrEqual(6);
+      expect(colors(out)).toEqual(colors(line));
+    },
+  );
+
   test('90 degrees swaps width and height', () => {
     const out = rotatePixels(src, Math.PI / 2);
     expect([out.w, out.h]).toEqual([4, 8]);

@@ -1,12 +1,21 @@
 import { createImage, type PixelImage } from '../render/pixelImage.ts';
 import { toSurface, type Surface } from '../render/surface.ts';
-import type { SheetSpec } from './manifest.ts';
+import { validateSheet, type SheetSpec } from './manifest.ts';
 
 export interface LoadedSheet {
   spec: SheetSpec;
   /** Untinted frames. Tinting (Phase 5) reads these. */
   images: PixelImage[];
   surfaces: Surface[];
+  /** Per frame: rows above the frame's lowest opaque pixel, plus 1. Draw at bodyBottom - feet. */
+  feet: number[];
+}
+
+/** Row below the lowest opaque pixel, so a sprite's feet (not its padding) stand on the ground. */
+export function feetRow(img: PixelImage): number {
+  for (let y = img.h - 1; y >= 0; y--)
+    for (let x = 0; x < img.w; x++) if (img.data[(y * img.w + x) * 4 + 3]! > 0) return y + 1;
+  return img.h;
 }
 
 async function decodePng(path: string): Promise<PixelImage> {
@@ -42,7 +51,10 @@ export async function loadFrames(spec: SheetSpec): Promise<PixelImage[]> {
   return sliceFrames(await decodePng(spec.source.path), spec.frameW, spec.frameH);
 }
 
+/** Loads a sheet and enforces the sprite contract: a sheet that breaks it never reaches play. */
 export async function loadSheet(spec: SheetSpec): Promise<LoadedSheet> {
   const images = await loadFrames(spec);
-  return { spec, images, surfaces: images.map(toSurface) };
+  const errors = validateSheet(spec, images);
+  if (errors.length) throw new Error(`Sprite contract: ${errors.join('; ')}`);
+  return { spec, images, surfaces: images.map(toSurface), feet: images.map(feetRow) };
 }

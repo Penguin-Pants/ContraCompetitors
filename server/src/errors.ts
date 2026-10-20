@@ -11,8 +11,22 @@ export function sendError(
   return reply.code(status).send(body);
 }
 
-/** All API errors use `{ error, message }`. Schema failures are `bad_request`. */
+function codeFor(status: number): ApiErrorCode {
+  if (status === 404) return 'not_found';
+  if (status === 429) return 'rate_limited';
+  return status >= 500 ? 'internal' : 'bad_request';
+}
+
+/**
+ * All API errors use `{ error, message }`. Schema failures are `bad_request`. Unknown `/api`
+ * routes are `not_found`; other unknown paths keep a plain-text 404.
+ */
 export function installErrorHandler(app: FastifyInstance) {
+  app.setNotFoundHandler((req, reply) => {
+    if (req.url === '/api' || req.url.startsWith('/api/') || req.url.startsWith('/api?'))
+      return sendError(reply, 404, 'not_found', 'Not found');
+    return reply.code(404).type('text/plain; charset=utf-8').send('Not found');
+  });
   app.setErrorHandler((err: FastifyError, req, reply) => {
     if (err.validation) return sendError(reply, 400, 'bad_request', err.message);
     const status =
@@ -21,7 +35,7 @@ export function installErrorHandler(app: FastifyInstance) {
     return sendError(
       reply,
       status,
-      status === 500 ? 'internal' : 'bad_request',
+      codeFor(status),
       status === 500 ? 'Internal error' : err.message,
     );
   });
