@@ -180,13 +180,14 @@ DEL-1 (foundation only).
 
 **Changes**
 - Create root `package.json` (workspaces `client`, `server`, `shared`), `tsconfig.base.json`, ESLint + Prettier config, `.gitignore`, `.nvmrc` (Node 22).
-- Create `shared/` with `Difficulty` type (`easy | medium | hard`).
+- Create `shared/src/difficulty.ts`: runtime array `DIFFICULTIES = ['easy', 'medium', 'hard'] as const` and `type Difficulty = typeof DIFFICULTIES[number]`. Server route schemas and client menus import the array, so the values exist at runtime.
 - Create `server/src/app.ts` (Fastify factory, injectable config for tests), `server/src/index.ts`, `routes/health.ts` (`GET /api/health`).
-- Create `server/src/db/db.ts`: SQLite at `${DATA_DIR}/app.db` (`better-sqlite3`) and a migration runner (SQL files in `server/src/db/migrations/`, run at startup). The runner records each applied file name in a `schema_migrations` table and applies every file not yet recorded, in name order, each in its own transaction. It does not use a single version number, so phases can land in any order. Migrations touch only their own tables. No tables yet. Phases 6, 7 and 8 each add their own migration file.
+- Create `server/src/db/db.ts`: SQLite at `${DATA_DIR}/app.db` (`better-sqlite3`) and a migration runner (SQL files in `server/src/db/migrations/`, run at startup). The runner records each applied file name in a `schema_migrations` table and applies every file not yet recorded, in name order. For each file, the migration SQL and the `schema_migrations` insert run in the same transaction, so a crash leaves the file either fully applied and recorded or not applied at all. It does not use a single version number, so phases can land in any order. Migrations touch only their own tables. No tables yet. Phases 6, 7 and 8 each add their own migration file.
 - Serve `client/dist` with `@fastify/static` in production. Vite proxies `/api` in dev.
 - Create `client/index.html`, `client/src/main.ts` (blank canvas stack placeholder).
 - Create `.github/workflows/ci.yml`: install, lint, typecheck, Vitest, Playwright E2E (Chromium).
 - Create `README.md` with setup, scripts and env vars table (start with `PORT`, `DATA_DIR`).
+- Create `.env.example` with valid dev values (`CONTACT_EMAIL=takedown@example.com`, `SOURCE_URL=https://github.com/Penguin-Pants/ContraCompetitors`). Playwright `webServer.env` and the CI workflow set the same fixed values, so the Phase 5 startup check never blocks local runs or tests.
 
 **Implementation notes**
 - `createApp(config)` must accept dependency overrides (DNS resolver, clock, data dir). Later phases need this for tests (SSRF tests use a local fixture server, which the production IP policy blocks).
@@ -194,7 +195,7 @@ DEL-1 (foundation only).
 
 **Tests**
 - Vitest: health route returns 200.
-- Vitest: migration runner applies files in name order once; a second start applies nothing; a lower-numbered file added after higher ones were applied (Phase 6 landing after Phase 7) is still applied; a failing file rolls back and stops startup.
+- Vitest: migration runner applies files in name order once; a second start applies nothing; a lower-numbered file added after higher ones were applied (Phase 6 landing after Phase 7) is still applied; a failing file rolls back and stops startup; a simulated crash after the SQL but before commit leaves no table and no record, and the next start applies the file once.
 - Playwright: home page loads with no console errors.
 
 **Acceptance criteria**
@@ -409,7 +410,7 @@ LB-1, LB-2, LB-4, C-2.
 - Migration `server/src/db/migrations/001_scores.sql`: table `scores(id, difficulty, initials, time_ms, created_at)`, index on `(difficulty, time_ms, created_at)`. Uses the Phase 1 migration runner.
 - `shared/src/initials.ts`: `/^[A-Za-z]{3}$/`, normalize to upper case.
 - `server/src/routes/leaderboard.ts`:
-  - Both routes validate `:difficulty` against `shared/src/difficulty.ts` (Fastify route schema enum) and return 400 for any other value before any DB access.
+  - Both routes validate `:difficulty` with a Fastify route schema `enum: DIFFICULTIES` (the runtime array from `shared/src/difficulty.ts`) and return 400 for any other value before any DB access.
   - `GET /api/leaderboard/:difficulty` returns Top 10 ordered by `time_ms` asc, then `created_at` asc.
   - `POST /api/leaderboard/:difficulty` body `{initials, timeMs}`. Checks: initials filter; `timeMs` is a positive integer (needed to store the value). No other checks (LB-4, C-2). Returns the new Top 10 and the new row id (or `null` if the row did not place).
   - Bounded storage: in one transaction, insert the row, then delete every row for that difficulty outside the Top 10. The table never holds more than 30 rows.
@@ -853,3 +854,6 @@ No unresolved product decisions remain.
 | `CONTACT_EMAIL` form ambiguous (`mailto:mailto:` risk) | Plain address only; client adds the scheme |
 | Leaderboard accepted any `:difficulty` | Enum validation, 400 before DB access |
 | `user_version` runner would skip `001` if Phase 7 landed before Phase 6 | Runner tracks applied file names; late files still apply |
+| Migration SQL and its record could commit separately | Same transaction; crash-boundary test |
+| `Difficulty` type-only union has no runtime values for the schema enum | Runtime `DIFFICULTIES` array; type derived from it |
+| Startup check could block local, E2E and CI runs | Fixed values in `.env.example`, Playwright and CI |
