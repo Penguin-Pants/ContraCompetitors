@@ -1,0 +1,15 @@
+{
+  "name": "@lr/client",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "@lr/shared": "*"
+  },
+  "devDependencies": {
+    "vite": "^8.3.4"
+  }
+}

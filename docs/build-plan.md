@@ -1,8 +1,8 @@
 # Logistics Run: Build Plan
 
 **Source of truth:** [`docs/requirements/logistics-run-requirements.md`](requirements/logistics-run-requirements.md) (v2, "Decision-complete").
-**Status:** Ready for implementation. No open product blockers.
-**Scope:** Plan only. No code is in this commit.
+**Status:** In implementation. See section 7 for phase status.
+**Scope:** Plan and implementation record.
 
 ---
 
@@ -891,3 +891,33 @@ No unresolved product decisions remain.
 | Migration SQL and its record could commit separately | Same transaction; crash-boundary test |
 | `Difficulty` type-only union has no runtime values for the schema enum | Runtime `DIFFICULTIES` array; type derived from it |
 | Startup check could block local, E2E and CI runs | Fixed values in `.env.example`, Playwright and CI |
+
+---
+
+## 7. Implementation status
+
+Review method per phase: two passes on the full phase diff. Pass 1 checks coverage and correctness against the phase requirements. Pass 2 checks scope, security and verifiability. Findings are classified per `AGENTS.md` (Edits 3): in-task findings are fixed in the phase; out-of-task findings are listed in section 7.2 as proposals.
+
+| Phase | Status | Evidence | Remaining or blocked |
+|---|---|---|---|
+| 1 Scaffold and CI | ✅ Done | Vitest health + 5 migration-runner cases; Playwright home page; `npm start` serves client and `/api/health` | CI green on GitHub is confirmed on the PR |
+| 2 Renderer, input, loop | Not started | | |
+| 3 Level, movement, timer | Not started | | |
+| 4 Combat, enemies, pause | Not started | | |
+| 5 Theming, faces, menus | Not started | | |
+| 6 Leaderboard backend | Not started | | |
+| 7 Secure fetch, blocklist | Not started | | |
+| 8 Ingestion, faces, cache | Not started | | |
+| 9 Client integration | Not started | | |
+| 10 Final art | Not started | | |
+| 11 Deploy and launch gate | Not started | | |
+
+### 7.1 Engineering notes
+
+- Phase 1: the server runs TypeScript directly with Node 22 type stripping (Node >= 22.19). There is no server build step. `tsconfig.base.json` sets `erasableSyntaxOnly` so code stays strippable.
+- Phase 1: TypeScript is pinned to `~6.0` because `typescript-eslint` 8.x supports `<6.1.0`. `@playwright/test` is pinned to `1.56.1` to match the Chromium build in the dev container and in CI.
+
+### 7.2 Proposed out-of-scope fixes
+
+None yet.
+
