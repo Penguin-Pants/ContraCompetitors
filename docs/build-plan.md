@@ -182,7 +182,7 @@ DEL-1 (foundation only).
 - Create root `package.json` (workspaces `client`, `server`, `shared`), `tsconfig.base.json`, ESLint + Prettier config, `.gitignore`, `.nvmrc` (Node 22).
 - Create `shared/` with `Difficulty` type (`easy | medium | hard`).
 - Create `server/src/app.ts` (Fastify factory, injectable config for tests), `server/src/index.ts`, `routes/health.ts` (`GET /api/health`).
-- Create `server/src/db/db.ts`: SQLite at `${DATA_DIR}/app.db` (`better-sqlite3`) and a migration runner (numbered SQL files in `server/src/db/migrations/`, version in `PRAGMA user_version`, run at startup). No tables yet. Phases 6, 7 and 8 each add their own migration file.
+- Create `server/src/db/db.ts`: SQLite at `${DATA_DIR}/app.db` (`better-sqlite3`) and a migration runner (SQL files in `server/src/db/migrations/`, run at startup). The runner records each applied file name in a `schema_migrations` table and applies every file not yet recorded, in name order, each in its own transaction. It does not use a single version number, so phases can land in any order. Migrations touch only their own tables. No tables yet. Phases 6, 7 and 8 each add their own migration file.
 - Serve `client/dist` with `@fastify/static` in production. Vite proxies `/api` in dev.
 - Create `client/index.html`, `client/src/main.ts` (blank canvas stack placeholder).
 - Create `.github/workflows/ci.yml`: install, lint, typecheck, Vitest, Playwright E2E (Chromium).
@@ -194,7 +194,7 @@ DEL-1 (foundation only).
 
 **Tests**
 - Vitest: health route returns 200.
-- Vitest: migration runner applies numbered files in order once, and a second start applies nothing.
+- Vitest: migration runner applies files in name order once; a second start applies nothing; a lower-numbered file added after higher ones were applied (Phase 6 landing after Phase 7) is still applied; a failing file rolls back and stops startup.
 - Playwright: home page loads with no console errors.
 
 **Acceptance criteria**
@@ -673,7 +673,7 @@ Phases 9 and 10.
 | Licensing | AGPL source link; dependency and model license check; Sprite Fusion terms (C-4); no copied third-party assets (C-3) | 8, 10, 11 |
 | Accessibility | Keyboard-only is a requirement, so all menus must work with keyboard (Tab, Enter). Text contrast via readability module. No further a11y scope. | 5, 9 |
 | Observability | Structured Fastify logs: ingestion domain, outcome code, duration, face count, source. No face data. | 8 |
-| Data migrations | Numbered SQL migrations with `PRAGMA user_version`; runner in Phase 1, one file per feature | 1, 6, 7, 8 |
+| Data migrations | Name-tracked SQL migrations (`schema_migrations` table); runner in Phase 1, one file per feature, order-independent | 1, 6, 7, 8 |
 | Rollback | Railway redeploy of the previous image. Migrations are additive only, so a previous image runs on a newer schema. | 11 |
 
 ---
@@ -852,3 +852,4 @@ No unresolved product decisions remain.
 | Timer start undefined in the spec | Owner decision Q-4: first gameplay key press |
 | `CONTACT_EMAIL` form ambiguous (`mailto:mailto:` risk) | Plain address only; client adds the scheme |
 | Leaderboard accepted any `:difficulty` | Enum validation, 400 before DB access |
+| `user_version` runner would skip `001` if Phase 7 landed before Phase 6 | Runner tracks applied file names; late files still apply |
