@@ -10,6 +10,8 @@ export const LIMITS = {
     html: 2 * 1024 * 1024,
     css: 1 * 1024 * 1024,
     image: 5 * 1024 * 1024,
+    /** Scripts, JSON and other subresources in the headless browser. */
+    any: 2 * 1024 * 1024,
   },
   /** Total bytes fetched for one ingestion. */
   ingestionBytes: 40 * 1024 * 1024,

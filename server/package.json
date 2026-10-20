@@ -3,14 +3,23 @@
   "private": true,
   "type": "module",
   "dependencies": {
+    "@fastify/multipart": "^10.1.4",
     "@fastify/static": "^10.1.6",
     "@lr/shared": "*",
     "better-sqlite3": "^13.0.3",
+    "css-tree": "^3.2.1",
+    "culori": "^4.0.2",
     "fastify": "^5.12.7",
     "ipaddr.js": "^2.5.0",
+    "onnxruntime-node": "^1.30.0",
+    "parse5": "^8.0.1",
+    "playwright": "^1.56.1",
+    "sharp": "^0.35.5",
     "undici": "^8.12.3"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^9.6.0"
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/css-tree": "^3.2.0",
+    "@types/culori": "^4.0.1"
   }
 }

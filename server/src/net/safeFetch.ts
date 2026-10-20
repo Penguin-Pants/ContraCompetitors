@@ -87,6 +87,7 @@ const TYPE_PREFIX: Record<BodyKind, readonly string[]> = {
   html: ['text/html', 'application/xhtml+xml'],
   css: ['text/css'],
   image: ['image/'],
+  any: [''],
 };
 
 const USER_AGENT = 'LogisticsRunBot/1.0 (game theming; contact via site footer)';
