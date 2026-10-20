@@ -4,6 +4,7 @@ import fastifyStatic from '@fastify/static';
 import type { Config } from './config.ts';
 import { openDb, type Db } from './db/db.ts';
 import { healthRoutes } from './routes/health.ts';
+import { indexHtmlRoutes } from './routes/indexHtml.ts';
 
 /**
  * Code-only overrides for tests. Never filled from env vars.
@@ -23,7 +24,8 @@ export async function createApp(config: Config, deps: AppDeps = {}): Promise<Fas
   healthRoutes(app);
 
   if (config.clientDist && fs.existsSync(config.clientDist)) {
-    await app.register(fastifyStatic, { root: config.clientDist });
+    indexHtmlRoutes(app, config, config.clientDist);
+    await app.register(fastifyStatic, { root: config.clientDist, index: false });
   }
   return app;
 }

@@ -32,6 +32,8 @@ Requires Node 22 (see `.nvmrc`, at least 22.19). The server runs TypeScript dire
 | `PORT` | `3000` | HTTP port |
 | `HOST` | `0.0.0.0` | Bind address |
 | `DATA_DIR` | `./data` | Directory for the SQLite database (`app.db`) |
+| `CONTACT_EMAIL` | none, required | Plain takedown address (no `mailto:`), shown in the footer. The server refuses to start without a valid value. |
+| `SOURCE_URL` | none, required | `https` URL of the public source repository (AGPL section 13). Required at startup. |
 
 ## License
 

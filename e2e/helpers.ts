@@ -1,5 +1,7 @@
 import type { Page } from '@playwright/test';
 import { decide } from '../client/test/helpers/combatBot.ts';
+import type { IngestResponse } from '../shared/src/api.ts';
+import { ingestResponse, mockIngest } from './fixtures.ts';
 
 export interface GameState {
   k: number;
@@ -16,14 +18,55 @@ export interface GameState {
     projectiles: number;
     particles: number;
     paused: boolean;
+    faceStyle: 'smooth' | 'pixelated';
+    faceDraws: { l1: number; l2: number };
+    faceIds: string[];
+    theme: { primary: string; secondary: string };
+    pops: number;
+    gain: number | null;
+    audio: AudioContextState | null;
+    difficulty: string;
   };
 }
 
-export async function openGame(page: Page, query = 'e2e=manual') {
-  await page.setViewportSize({ width: 1280, height: 720 });
-  await page.goto(`/?${query}`);
-  await page.waitForFunction(() => window.__lr !== undefined);
+export interface StartOptions {
+  /** Query string, e.g. 'e2e=manual' (default) or 'e2e' for the real-time clock. */
+  query?: string;
+  difficulty?: 'easy' | 'medium' | 'hard';
+  faceStyle?: 'auto' | 'smooth' | 'pixelated';
+  /** Ingest response; default is 2 colors and no faces. Pass null to leave /api/ingest unmocked. */
+  ingest?: IngestResponse | null;
+  viewport?: { width: number; height: number };
 }
+
+/** Opens the app, mocks ingestion, fills the main menu and starts a run. */
+export async function startRun(page: Page, opts: StartOptions = {}) {
+  await page.setViewportSize(opts.viewport ?? { width: 1280, height: 720 });
+  if (opts.ingest !== null) await mockIngest(page, opts.ingest ?? ingestResponse());
+  await page.goto(`/?${opts.query ?? 'e2e=manual'}`);
+  await page.waitForFunction(() => window.__lr !== undefined);
+  await page.getByLabel('Company website').fill('example.test');
+  await page.getByLabel(LABEL[opts.difficulty ?? 'medium']!, { exact: true }).check();
+  await page.getByLabel(LABEL[opts.faceStyle ?? 'auto']!, { exact: true }).check();
+  await page.getByRole('button', { name: 'Start' }).click();
+}
+
+/** Starts a run and waits for the game scene. */
+export async function openGame(page: Page, query = 'e2e=manual', opts: StartOptions = {}) {
+  await startRun(page, { ...opts, query });
+  await page.waitForFunction(
+    () => (window.__lr!.state() as { scene: { scene: string } }).scene.scene === 'game',
+  );
+}
+
+const LABEL: Record<string, string> = {
+  easy: 'Easy',
+  medium: 'Medium',
+  hard: 'Hard',
+  auto: 'Auto',
+  smooth: 'Smooth',
+  pixelated: 'Pixelated',
+};
 
 export function gameState(page: Page): Promise<GameState> {
   return page.evaluate(() => window.__lr!.state() as never);

@@ -13,6 +13,8 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
     host: '127.0.0.1',
     dataDir: tempDir(),
     clientDist: null,
+    contactEmail: 'takedown@example.com',
+    sourceUrl: 'https://github.com/Penguin-Pants/ContraCompetitors',
     ...overrides,
   };
 }

@@ -19,12 +19,14 @@ export interface GameSheets {
   briefcase: LoadedSheet;
 }
 
-/** Where an enemy's head goes this frame, in screen art pixels. Faces (Phase 5) use the same box. */
+/** Where an enemy's head goes this frame, in screen art pixels. */
 export interface HeadBox {
   enemy: Enemy;
   x: number;
   y: number;
   size: number;
+  /** Pixel-hit flash: the head draws as a white shape on L1. */
+  flashing: boolean;
 }
 
 const FLASH = '#ffffff';
@@ -46,7 +48,7 @@ export class EntityRenderer {
     }
   }
 
-  private head(variant: number): Surface {
+  placeholder(variant: number): Surface {
     let s = this.heads.get(variant);
     if (!s) {
       s = toSurface(placeholderHead(variant));
@@ -66,8 +68,8 @@ export class EntityRenderer {
     return s;
   }
 
-  /** Draws enemies and returns the head boxes of live enemies. `drawHeads` false leaves heads to the face layer. */
-  enemies(p: PixelCanvas, world: World, animMs: number, drawHeads: boolean): HeadBox[] {
+  /** Draws enemy bodies and returns the head boxes of live enemies. Heads are drawn by the caller. */
+  enemies(p: PixelCanvas, world: World, animMs: number): HeadBox[] {
     const cam = world.camera;
     const boxes: HeadBox[] = [];
     for (const e of world.enemies) {
@@ -92,14 +94,14 @@ export class EntityRenderer {
       const ax = flip ? sheet.spec.frameW - anchor.x : anchor.x;
       const hx = fx + ax - HEAD_W_ART / 2;
       const hy = fy + anchor.y + 4 - HEAD_W_ART;
-      boxes.push({ enemy: e, x: hx, y: hy, size: HEAD_W_ART });
-      if (drawHeads) {
-        const head = flashing ? null : this.head(e.faceSlot);
-        if (head) p.sprite(head, hx, hy);
-        else p.rect(hx + 3, hy + 2, HEAD_W_ART - 6, HEAD_W_ART - 3, FLASH);
-      }
+      boxes.push({ enemy: e, x: hx, y: hy, size: HEAD_W_ART, flashing });
     }
     return boxes;
+  }
+
+  /** White head shape for the pixel-hit flash. */
+  flashHead(p: PixelCanvas, box: HeadBox) {
+    p.rect(box.x + 3, box.y + 2, box.size - 6, box.size - 3, FLASH);
   }
 
   projectiles(p: PixelCanvas, world: World) {

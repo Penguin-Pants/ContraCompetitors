@@ -81,6 +81,11 @@ export class World {
     return this.active.size;
   }
 
+  /** Number of enemies a full run can spawn: one face slot each. */
+  get slotCount(): number {
+    return this.level.spawns.filter((s) => this.active.has(s.id)).reduce((n, s) => n + s.count, 0);
+  }
+
   takeEvents(): WorldEvent[] {
     return this.events.splice(0);
   }

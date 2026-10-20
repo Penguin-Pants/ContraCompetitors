@@ -904,7 +904,7 @@ Review method per phase: two passes on the full phase diff. Pass 1 checks covera
 | 2 Renderer, input, loop | ✅ Done | Unit: scale `k` table, input map (arrows ignored), rotation, loop freeze, camera snap, manifest contract. E2E: pixel blocks at k=1 and k=2 with a 30 degree sprite (fails when `image-rendering` is not `pixelated`); narrow guard show, freeze, hide. Lint rule blocks `imageSmoothingEnabled = true`. | None |
 | 3 Level, movement, timer | ✅ Done | Unit: one-way land, drop and solid block; timer format, stop and Q-4 start rules; zone order and labeled exit; headless bot traversal 52.4 s (40 to 70 s). E2E: scripted run to the exit with a stopped timer; arrow keys do nothing. | Pacing re-tuned in Phase 4 with combat |
 | 4 Combat, enemies, pause | ⚠️ Done except manual playtest | Unit: spread symmetry, laser wall stop and pierce, invulnerability, lost life resets weapon, 0 lives full reset, pickups, nested difficulty spawn sets, 2 to 3 briefcases per zone, exit with enemies alive. Combat-bot pacing proxy: Easy 59.8 s, Medium 63.6 s, Hard 67.1 s (unit test guards Medium in 60 to 120 s). E2E: pause freeze 2 s and resume, Restart level, pixel blocks during laser + particles + rotated projectiles. | Manual playtest: 3 Medium runs by a competent human player, times recorded in the PR (agent cannot do this) |
-| 5 Theming, faces, menus | Not started | | |
+| 5 Theming, faces, menus | ✅ Done | Unit: readability (derive, separate, adjust, unchanged), tint ramps, assign, quality majority and override with uploads. Integration: meta tags on `GET /`, startup fails on missing or invalid `CONTACT_EMAIL` (incl. `mailto:`) or `SOURCE_URL`. E2E: picker on no colors and HUD accent, Smooth on L2 only, Pixelated on L1 only, Auto choice, face pop, pause has exactly 4 items, Sound mutes (gain 0), audio stays suspended in pause, Main menu, Play again reuses data with no network call, footer and About links, Auto and Medium on reload, Enter starts a run. | Visual review done on placeholder art; repeat in Phase 10 |
 | 6 Leaderboard backend | Not started | | |
 | 7 Secure fetch, blocklist | Not started | | |
 | 8 Ingestion, faces, cache | Not started | | |
@@ -930,6 +930,12 @@ Review method per phase: two passes on the full phase diff. Pass 1 checks covera
 - Phase 4: enemies jump when blocked by a wall. A walker that cannot clear a tall stack hops in place, which a player can pass or shoot.
 - Phase 4: the combat bot (`client/test/helpers/combatBot.ts`) is one decision function used by the unit pacing test and by the E2E scripted run (its source is sent into the page). The `?e2e` hook exposes `world()` for this.
 - Phase 4: pause menu keys are Tab or W/S to move, Enter to choose and Esc to resume. Arrow keys stay unused (CTL-2).
+
+- Phase 5 deviation: the plan names `client/src/dev/fixtures.ts`. `AGENTS.md` (Edits 9) allows mock data only in tests, so fixture faces and colors live in `e2e/fixtures.ts`. Playwright serves them by mocking `POST /api/ingest`. The shipped client holds no mock data. `client/src/api/client.ts` therefore lands in Phase 5 with `ingest()`; Phase 9 adds the error, loading and upload flow.
+- Phase 5: colors picked in the color picker also pass through `makeReadable`, so a picked color that fails 3:1 is lightened. Readable picks stay unchanged.
+- Phase 5: face pops resample on their source grid: placeholder heads on the art grid, real faces on the L1 grid (the THM-5 finer grid).
+- Phase 5: pause suspends the AudioContext. A key press during pause does not resume it.
+- Phase 5: CI runs on pushes to `main` and on pull requests (one run per PR push instead of two).
 
 ### 7.2 Proposed out-of-scope fixes
 

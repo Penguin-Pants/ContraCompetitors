@@ -31,7 +31,6 @@ test('Restart level from pause resets the timer to 0 and lives to 3', async ({ p
   expect(hurt.scene.timer.ms).toBeGreaterThan(0);
   await page.keyboard.press('Escape');
   const menu = page.getByRole('dialog', { name: 'Paused' });
-  await expect(menu.getByRole('button')).toHaveText(['Resume', 'Restart level']);
   await menu.getByRole('button', { name: 'Restart level' }).click();
   await expect(menu).toBeHidden();
   const s = await gameState(page);
