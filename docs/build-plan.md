@@ -128,7 +128,7 @@ server/src/
   ingest/    pipeline.ts  colors.ts  crawl.ts  headless.ts  images.ts
   faces/     detector.ts  crop.ts
   cache/     faceCache.ts  sweeper.ts
-  routes/    ingest.ts  upload.ts  leaderboard.ts  health.ts  config.ts
+  routes/    ingest.ts  upload.ts  leaderboard.ts  health.ts  indexHtml.ts
   policy/    blocklist.ts  rateLimit.ts
   cli/       blocklist.ts
 server/models/               yunet .onnx + LICENSE
@@ -351,7 +351,7 @@ DEL-4, ING-1 (menu UI), ING-2, THM-1 to THM-8, RND-4 (face pop), ENM-3, PAU-3 (a
   - `client/src/theme/colorPicker.ts`: modal with two `<input type="color">`, opens when no color is available (E-5).
   - `client/src/theme/tint.ts`: at load, recolor sprite pixels in reserved gray ramps (clothing ramp for enemies to secondary, highlight ramp for player to primary). Cache tinted sheets.
 - Faces:
-  - `client/src/faces/faceStore.ts`: in-memory list of `{bitmap, srcWidth, srcHeight, origin: "site" | "upload"}`.
+  - `client/src/faces/faceStore.ts`: in-memory list of `{id, bitmap, srcWidth, srcHeight, origin: "site" | "upload"}`. `id` is the server-assigned face id (SHA-256 of the crop bytes) for site and uploaded faces alike. It never changes for the life of the store.
   - `client/src/faces/assign.ts`: shuffle, assign one face per enemy, cycle when faces < enemies (THM-3, I-1). Zero faces: placeholder heads (E-8).
   - `client/src/faces/quality.ts`: at run start, a face passes if `srcWidth >= onScreenHeadWidthDevicePx` (D-5). Auto: more than half pass gives Smooth for all, else Pixelated for all. Override forces one style for all faces, uploads included (THM-6, THM-7, E-9).
   - `client/src/render/faceLayer.ts`: Smooth faces on L2 at device resolution, anchored to the head anchor of the current body frame.
@@ -361,9 +361,9 @@ DEL-4, ING-1 (menu UI), ING-2, THM-1 to THM-8, RND-4 (face pop), ENM-3, PAU-3 (a
   - `client/src/ui/mainMenu.ts`: URL field, difficulty (Easy, Medium, Hard), Face style (Auto default, Smooth, Pixelated), Start. Face style is not persisted (resets to Auto each visit, D-4).
   - `client/src/ui/pause.ts`: add Main menu and Sound toggle (D-6).
   - `client/src/ui/postGame.ts`: show final time, Play again (same site, difficulty and face data, I-3) and Main menu. Leaderboard slot is empty until Phase 9.
-  - `server/src/routes/config.ts`: `GET /api/config` returns `{contactEmail, sourceUrl}` from the server env vars `CONTACT_EMAIL` and `SOURCE_URL`. Runtime config, so the Docker image needs no rebuild when values change.
-  - `client/src/ui/footer.ts`: About link and a takedown and blocklist request link (`mailto:` to `contactEmail` from `/api/config`). If the config fetch fails, the footer shows the About link only.
-  - `client/src/ui/about.ts`: About view (DOM overlay, not a static file, so it can use `/api/config`). It explains the game, the 24 h face cache, no recognition and the takedown process.
+  - `server/src/routes/indexHtml.ts`: serves `index.html` with `<meta name="contact-email">` and `<meta name="source-url">` filled from the env vars `CONTACT_EMAIL` and `SOURCE_URL` (HTML-escaped). The server refuses to start if either is missing or not a valid `mailto`/`https` value. The values arrive with the page, so there is no separate config request that can fail, and the image needs no rebuild when values change. Vite dev server injects the same tags from `.env`.
+  - `client/src/ui/footer.ts`: About link, takedown and blocklist request link (`mailto:` from the `contact-email` meta tag) and Source code link (from `source-url`).
+  - `client/src/ui/about.ts`: About view (DOM overlay). It explains the game, the 24 h face cache, no recognition and the takedown process, and repeats both links.
 - Audio: `client/src/audio/sfx.ts` (synth SFX: shoot, spread, laser loop, hit, enemy pop, pickup, jump, life lost, exit). Default state: on. Audio context starts on first keypress (browser autoplay rule). Sound state lives in memory for the visit.
 - Dev fixtures: `client/src/dev/fixtures.ts` with sample colors and faces, loaded only by a dev query flag, so this phase is testable without the server.
 - All UI text is English (D-1).
@@ -381,8 +381,8 @@ DEL-4, ING-1 (menu UI), ING-2, THM-1 to THM-8, RND-4 (face pop), ENM-3, PAU-3 (a
 - E2E: start with fixture "no colors" opens the color picker; picked colors appear in the HUD accent.
 - E2E: Smooth override draws faces on L2 and none on L1; Pixelated override draws none on L2.
 - E2E: pause menu has exactly Resume, Restart level, Main menu, Sound; Main menu returns to the menu; Sound toggle mutes output (gain node at 0).
-- E2E: post-game Play again starts a new run with the same difficulty, face IDs and selected colors, without a network call.
-- Integration: `GET /api/config` returns the values of `CONTACT_EMAIL` and `SOURCE_URL`. E2E: footer `mailto:` uses the configured address.
+- E2E: post-game Play again starts a new run with the same difficulty, the same multiset of face ids in the store (compare sorted ids, not enemy order, since `assign.ts` shuffles) and the same selected colors, without a network call.
+- Integration: `GET /` returns both meta tags with the configured values; server start fails when `CONTACT_EMAIL` or `SOURCE_URL` is missing or invalid. E2E: footer shows About, takedown `mailto:` and Source code links with the configured values.
 
 **Acceptance criteria**
 - All tests above pass.
@@ -631,7 +631,7 @@ DEL-1, DEL-2, SEC-5 (process), C-4, AGPL compliance (repo evidence, section 0.1)
 - Chromium hardening (Playwright Docker guidance for crawling): launch with `chromiumSandbox: true` and never pass `--no-sandbox`. Apply the Playwright seccomp profile where the host allows it. If Railway cannot run the sandbox, move headless rendering to a separate Railway service with no volume and no secrets, called over the private network. Do not ship headless retry without one of these two setups.
 - Test: CI starts the image, asserts the server process UID is not 0, and launches Chromium with the sandbox on (launch fails if the sandbox is not available).
 - Railway: one service, one volume mounted at `DATA_DIR`. Env vars: `PORT`, `DATA_DIR`, `CONTACT_EMAIL`, `TRUST_PROXY_HOPS`, `SOURCE_URL`.
-- Footer and About view: add "Source code" link to `sourceUrl` from `/api/config` (AGPL section 13).
+- Footer and About view: the "Source code" link (from the `source-url` meta tag, Phase 5) points to the public repository (AGPL section 13).
 - Production smoke test: footer takedown link and Source code link resolve to the configured `CONTACT_EMAIL` and `SOURCE_URL`.
 - `docs/operations.md`: blocklist CLI, takedown handling (add to blocklist, which purges cache), cache lifetime, rate limits, logs policy (no face metadata).
 - `docs/architecture.md`: layer stack, data flow, security model.
@@ -828,7 +828,8 @@ No unresolved product decisions remain.
 | Finding | Fix applied |
 |---|---|
 | Short viewport gave k=0 | `k = max(1, ...)`; 960 x 539 test |
-| Footer config could not reach static files | `GET /api/config`; About is a client view |
+| Footer config could not reach static files; config fetch could fail | Server injects meta tags into `index.html`; required at startup |
+| Play again face check had no stable id | `id` = crop SHA-256; compare sorted id multiset |
 | 10 min sweeper could exceed 24 h | Read TTL 23 h; worst case 23 h 10 min |
 | Leaderboard table unbounded | Prune to Top 10 per difficulty in the insert transaction |
 | Face crops unbounded | 256 px longest side, 150 KB cap |
