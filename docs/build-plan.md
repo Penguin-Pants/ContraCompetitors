@@ -67,7 +67,7 @@ Full list with text: section 9 (traceability).
 | Image decode and crop | `sharp` | Validates image content, crops, strips metadata. |
 | Face detection | `onnxruntime-node` + YuNet ONNX model (OpenCV Zoo) | Detection only. No recognition model is shipped (SEC-4). Verify the model license (expected MIT) in Phase 8 before commit. |
 | Headless browser | Playwright Chromium | Retry path (ING-5). Pre-installed in the Playwright Docker image. |
-| Storage | SQLite (`better-sqlite3`) on a persistent volume + face PNGs on disk | Leaderboard, blocklist, cache index. One instance. No extra service. |
+| Storage | SQLite (`better-sqlite3`) on a persistent volume; face cache in process memory only | SQLite holds leaderboard, blocklist and rate events. No face data on disk. One instance. No extra service. |
 | Audio | Web Audio API, SFX synthesized in code | No third-party audio assets, no license risk. |
 | Tests | Vitest (unit, server integration), Playwright Test (E2E) | |
 | Deploy | Docker image based on `mcr.microsoft.com/playwright` + Railway with one volume | Railway is the stated example. The Docker image keeps the stack portable. |
@@ -84,7 +84,7 @@ bottom L0  bg canvas       Fixed-palette backdrop and light glows (device resolu
 
 - **Art grid:** 480 x 270 art pixels (16:9).
 - **Pixel canvas (L1):** 960 x 540. Every art sprite draws at exactly 2x on L1. This gives a grid that is finer than world pixels for Pixelated faces (THM-5). Pixelated faces use 1 L1 pixel = 1/2 art pixel.
-- **Upscale:** L1 scales to the screen by integer factor `k = max(1, floor(min(viewportW / 960, viewportH / 540)))` with CSS `image-rendering: pixelated`. The `max(1, ...)` keeps `k >= 1` when the viewport is shorter than 540 CSS px; the stage then keeps k=1 and the page scrolls vertically (the spec defines no short-window message). If the viewport is narrower than 960 CSS px, the game shows "Make the window wider to play" (E-12).
+- **Upscale:** L1 scales to the screen by integer factor `k = min(K_MAX, max(1, floor(min(viewportW / 960, viewportH / 540))))` with `K_MAX = 4`; larger viewports center the stage with a fixed-palette border. The face layer L2 caps its backing-store DPR at `DPR_MAX = 2`. Both caps bound the largest on-screen head, which sets the face crop size (Phase 8). with CSS `image-rendering: pixelated`. The `max(1, ...)` keeps `k >= 1` when the viewport is shorter than 540 CSS px; the stage then keeps k=1 and the page scrolls vertically (the spec defines no short-window message). If the viewport is narrower than 960 CSS px, the game shows "Make the window wider to play" (E-12).
 - **Rotation (RND-3):** a rotated sprite first rotates into a scratch canvas at art resolution (nearest neighbor), then blits at 2x onto L1. Pixels stay on the art grid.
 - **Camera:** snaps to whole art pixels. L2 uses the same snapped camera so Smooth faces stay locked to their bodies.
 - **Smooth face draw order:** L2 is above L1. A Smooth face draws over its body and over any pixel art in front of it (accepted in Q-1).
@@ -130,6 +130,7 @@ server/src/
   faces/     detector.ts  crop.ts
   cache/     faceCache.ts  sweeper.ts  (in memory, no disk)
   routes/    ingest.ts  upload.ts  leaderboard.ts  health.ts  indexHtml.ts
+  jobs/      minuteJob.ts
   policy/    blocklist.ts  rateLimit.ts
   cli/       blocklist.ts
 server/models/               yunet .onnx + LICENSE
@@ -187,7 +188,7 @@ DEL-1 (foundation only).
 - Create `client/index.html`, `client/src/main.ts` (blank canvas stack placeholder).
 - Create `.github/workflows/ci.yml`: install, lint, typecheck, Vitest, Playwright E2E (Chromium).
 - Create `README.md` with setup, scripts and env vars table (start with `PORT`, `DATA_DIR`).
-- Create `.env.example` with valid dev values (`CONTACT_EMAIL=takedown@example.com`, `SOURCE_URL=https://github.com/Penguin-Pants/ContraCompetitors`). Playwright `webServer.env` and the CI workflow set the same fixed values, so the Phase 5 startup check never blocks local runs or tests.
+- Create `.env.example` with valid dev values (`CONTACT_EMAIL=takedown@example.com`, `SOURCE_URL=https://github.com/Penguin-Pants/ContraCompetitors`). The `dev` and `start` scripts run Node with `--env-file-if-exists=.env`, and Vite reads `.env` itself. Setup is `cp .env.example .env` (README step 1). Playwright `webServer.env` and the CI workflow set the same fixed values directly, so tests never depend on a local `.env`.
 
 **Implementation notes**
 - `createApp(config)` must accept dependency overrides (DNS resolver, clock, data dir). Later phases need this for tests (SSRF tests use a local fixture server, which the production IP policy blocks).
@@ -200,7 +201,7 @@ DEL-1 (foundation only).
 
 **Acceptance criteria**
 - CI is green on a clean clone.
-- `npm run build && npm start` serves the client and `/api/health` from one process.
+- On a clean clone, `cp .env.example .env && npm install && npm run build && npm start` serves the client and `/api/health` from one process.
 
 **Dependencies**
 None.
@@ -407,7 +408,7 @@ A persistent global Top 10 per difficulty with a trust-based submit.
 LB-1, LB-2, LB-4, C-2.
 
 **Changes**
-- Migration `server/src/db/migrations/001_scores.sql`: table `scores(id, difficulty, initials, time_ms, created_at)`, index on `(difficulty, time_ms, created_at)`. Uses the Phase 1 migration runner.
+- Migration `server/src/db/migrations/001_scores.sql`: table `scores(id, submission_id TEXT NOT NULL UNIQUE, difficulty, initials, time_ms, created_at)`, index on `(difficulty, time_ms, created_at)`. Uses the Phase 1 migration runner.
 - `shared/src/initials.ts`: `/^[A-Za-z]{3}$/`, normalize to upper case.
 - `server/src/routes/leaderboard.ts`:
   - Both routes validate `:difficulty` with a Fastify route schema `enum: DIFFICULTIES` (the runtime array from `shared/src/difficulty.ts`) and return 400 for any other value before any DB access.
@@ -457,7 +458,7 @@ SEC-1, SEC-2, SEC-3, SEC-5 (rejection), ING-8 (rate limit), E-1, E-2, E-4, E-7, 
 - Migrations `002_blocklist.sql` and `003_rate_limit.sql` (Phase 1 runner).
 - `server/src/policy/blocklist.ts`: table `blocklist(domain, created_at)`, entries stored in canonical form. A canonical host matches if it equals an entry or ends with `.` + entry.
 - `server/src/cli/blocklist.ts`: `npm run blocklist -- add|remove|list <domain>`. `add` also purges the domain cache (Phase 8 hook).
-- `server/src/policy/rateLimit.ts`: sliding window, 5 per IP per hour, in SQLite (survives restarts). Table `rate_events(ip_hash, at)` stores a SHA-256 of the IP, not the IP. Each insert deletes that IP's events older than 1 h, and the Phase 8 sweeper deletes all events older than 1 h every minute, so the table holds at most one hour of admitted ingestions. A slot is used only when a real fetch starts. Cache hits, invalid URLs and blocklisted URLs use no slot (Q-2).
+- `server/src/policy/rateLimit.ts`: sliding window, 5 per IP per hour, in SQLite (survives restarts). Table `rate_events(ip_hash, at)` stores a SHA-256 of the IP, not the IP. Each insert deletes that IP's events older than 1 h, and `server/src/jobs/minuteJob.ts` (created in this phase, runs every minute) deletes all events older than 1 h, so the table holds at most one hour of admitted ingestions. A slot is used only when a real fetch starts. Cache hits, invalid URLs and blocklisted URLs use no slot (Q-2).
 - Fastify `trustProxy` set from config (Railway runs one proxy hop) so `request.ip` is the client IP.
 
 **Implementation notes**
@@ -499,17 +500,17 @@ ING-3 to ING-9, SEC-3, SEC-4, C-1, D-2, D-3, E-3, E-7.
 - `server/src/faces/worker.ts`: `sharp` decode, YuNet detection and cropping run in a `worker_threads` pool (2 workers). Each job gets the time left in the budget; on deadline the pool calls `worker.terminate()` and starts a fresh worker, so a slow decode or inference cannot keep using CPU past 30 s.
 - `server/src/ingest/colors.ts` (ING-3): fetch homepage HTML, then linked stylesheets (max 10) and inline `<style>`. Parse with `css-tree`. Score candidates: custom properties with brand-like names (`--primary`, `--brand`, `--accent`, `--color-primary` and similar) first, then saturated colors used as `background-color` or `color` on buttons, links and headers, ranked by frequency. Drop near-white, near-black and low-chroma grays. Return 0, 1 or 2 colors. The client does readability and derivation (Phase 5).
 - `server/src/ingest/crawl.ts` (ING-4): from the homepage, follow same-site links whose path or text matches team, about, leadership, people, company, and up to N blog post links. Max 12 pages. Collect `<img>` (`src`, `srcset` largest), author images on blog posts (`.author img`, `[rel=author] img`, schema.org `author.image`).
-- `server/src/ingest/images.ts`: fetch candidates through `safeFetch`, decode with `sharp` (`limitInputPixels` 25 MP). Accept JPEG, PNG, WebP, GIF (first frame) only. Discard SVG, non-images, decode failures and oversize (E-7).
+- `server/src/ingest/images.ts`: dedupe candidate URLs, keep at most 150 per ingestion (team and author images first), and fetch them through `safeFetch` with at most 4 requests in flight. Test: a page with 5,000 `<img>` tags makes at most 150 image requests and never more than 4 at once. Then decode with `sharp` (`limitInputPixels` 25 MP). Accept JPEG, PNG, WebP, GIF (first frame) only. Discard SVG, non-images, decode failures and oversize (E-7).
 - `server/src/faces/detector.ts`: YuNet via `onnxruntime-node`, confidence threshold ~0.8, min face width 40 px.
-- `server/src/faces/crop.ts` (ING-5): crop to the detected face box only. Downscale so the longest side is at most 256 px (the largest on-screen head at k=4 and DPR 2). Encode PNG with no metadata; reject any crop over 150 KB encoded. The reported `width` is the width after the cap, which still passes D-5 for every reachable on-screen size. Max 30 faces per domain. Deduplicate exact repeats by content hash.
+- `server/src/faces/crop.ts` (ING-5): crop to the detected face box only. Downscale so the longest side is at most `MAX_CROP_PX = HEAD_W_ART × 2 × K_MAX × DPR_MAX` (shared constant; 512 px for a 32 art px head, 256 px for 16). This equals the largest reachable on-screen head in device pixels, so capping never makes a face fail D-5 or upscales a Smooth face. Encode PNG with no metadata; reject any crop over `MAX_CROP_PX² / 1024` bytes (256 KB at 512 px). Unit test: a 1,000 px face crop is capped to `MAX_CROP_PX` and passes the quality check at k=4, DPR 2. Max 30 faces per domain. Deduplicate exact repeats by content hash.
 - `server/src/ingest/headless.ts` (ING-6): if static faces < 5 and budget remains, load the same pages in Playwright Chromium:
-  - every request goes through `page.route` and is fulfilled by `safeFetch` (so SSRF rules apply to the browser too);
+  - every request goes through `page.route` and is fulfilled by `safeFetch` (so SSRF rules apply to the browser too). `safeFetch` runs in single-hop mode here: it validates the target, and a 3xx answer goes back to Chromium unchanged as a 3xx with its `Location`. Chromium then follows it as a new request, which `page.route` intercepts and validates again. The document URL therefore matches the real final URL. Test: `http://a.test/` redirects to `https://www.a.test/app/`; relative scripts and images on the final page resolve against `/app/`;
   - WebSockets closed via `routeWebSocket`; service workers blocked; WebRTC non-proxied UDP disabled; browser `proxy` set to a dead local port so any request that escapes routing fails;
   - after load, run the `crawl.ts` link matcher on the rendered DOM and visit newly found team, about, leadership and blog pages (same 12-page total cap as the static crawl);
   - collect rendered image URLs from every visited page and feed them to `images.ts`;
   - max 2 headless sessions at once; queued requests count against their own 30 s budget.
-- `server/src/cache/faceCache.ts` (ING-9, C-1): key = `canonicalHost` (Phase 7), exact. `example.com` and `www.example.com` are separate entries, so cache keys use the same matching rule as the blocklist. The cache lives in process memory only (a `Map` with LRU eviction, cap 256 MB). Face crops are never written to disk, so no face data survives a stop, crash or redeploy, and downtime cannot extend the 24 h limit (C-1). Entry = `{colors, faces, createdAt}`. Cache only complete ingestions (not `partial`). Cache TTL is 23 h for reads (`CACHE_TTL`).
-- `server/src/cache/sweeper.ts`: every 1 min, delete entries older than `CACHE_TTL` (23 h) and entries whose key matches the blocklist. Worst-case lifetime is 23 h 1 min, under the 24 h limit. The blocklist CLI is a separate process, so this sweep is how a new blocklist entry purges the in-memory cache within 1 min; the ingest route also checks the blocklist before any cache read, so a blocked domain is never served even inside that minute.
+- `server/src/cache/faceCache.ts` (ING-9, C-1): key = `canonicalHost` (Phase 7), exact. `example.com` and `www.example.com` are separate entries, so cache keys use the same matching rule as the blocklist. The cache lives in process memory only (a `Map` with LRU eviction, cap 256 MB). Face crops are never written to disk, so no face data survives a stop, crash or redeploy, and downtime cannot extend the 24 h limit (C-1). Entry = `{colors, faces, sourceHosts, createdAt}`; `sourceHosts` is the set of `canonicalHost` values of every page and image fetched for the entry. Cache only complete ingestions (not `partial`). Cache TTL is 23 h for reads (`CACHE_TTL`).
+- `server/src/cache/sweeper.ts`: registers with the Phase 7 minute job. Every minute it deletes entries older than `CACHE_TTL` (23 h) and entries whose key or any `sourceHosts` value matches the blocklist. Worst-case lifetime is 23 h 1 min, under the 24 h limit. The blocklist CLI is a separate process, so this sweep is how a new blocklist entry purges the in-memory cache within 1 min; the ingest route also checks the blocklist before any cache read, so a blocked domain is never served even inside that minute.
 - `server/src/routes/ingest.ts`: order: validate URL, blocklist, cache lookup, rate limit, pipeline. Response type in `shared/src/api.ts`: `{domain, colors: string[], faces: [{id, dataUrl, width, height}], partial, source: "cache" | "static" | "headless"}`.
 - `server/src/routes/upload.ts` (ING-7, D-2): `POST /api/faces/upload`, multipart, max 10 files, 5 MB each. Same decode, detect and crop path. Processed in memory. Never written to disk or cache. Returns face crops in the same shape. Light abuse limit: 20 upload requests per IP per hour.
 
@@ -517,8 +518,8 @@ ING-3 to ING-9, SEC-3, SEC-4, C-1, D-2, D-3, E-3, E-7.
 - Faces go to the client as data URLs in the JSON response. No public face URLs exist, so no extra access-control surface.
 - Never store or log names, alt text, captions, file names or page URLs with faces (SEC-4). Logs hold the domain, counts and timings only.
 - `blocklist add` calls `faceCache.purge(domain)` (C-1, SEC-5 takedown).
-- `faceCache.purge(entry)` deletes every key that equals `entry` or ends with `.` + `entry` (the blocklist matching rule). The sweeper calls it for each blocklist entry. Test: cache `example.com` and `www.example.com`; after `blocklist add example.com` and one sweep, both are gone; after `blocklist add www.example.com` and one sweep, only `www.example.com` is gone; a request for a just-blocked domain returns `blocked_domain` before the sweep runs.
-- Blocklist race: after the pipeline, a fresh blocklist check (synchronous `better-sqlite3` read) and the cache `set` run in one synchronous block with no `await` between them. If the domain became blocklisted during the pipeline, nothing is cached and the request returns `blocked_domain`. Test: block the domain while a fixture pipeline is in flight; assert no cache entry and a `blocked_domain` response.
+- `faceCache.purge(entry)` deletes every cache entry whose key or any `sourceHosts` value equals `entry` or ends with `.` + `entry` (the blocklist matching rule). Test: `company.test` cached with a face from `cdn.thirdparty.test`; after `blocklist add thirdparty.test` and one sweep, the `company.test` entry is gone. The sweeper calls it for each blocklist entry. Test: cache `example.com` and `www.example.com`; after `blocklist add example.com` and one sweep, both are gone; after `blocklist add www.example.com` and one sweep, only `www.example.com` is gone; a request for a just-blocked domain returns `blocked_domain` before the sweep runs.
+- Blocklist race: after the pipeline, the server checks the key and all `sourceHosts` against the blocklist, then sets the cache entry. The CLI is a separate process, so a block can still commit between that check and the set. The guarantee is therefore defined by the two checks that cannot be skipped: (1) every cache read checks the blocklist first, so blocked data is never served after the block commits; (2) the minute sweep deletes it within 1 min. Tests: block a domain while a fixture pipeline is in flight; the next request returns `blocked_domain`, and after one sweep no entry exists. Block it before the post-pipeline check; that request returns `blocked_domain` and caches nothing.
 - Verify the YuNet model license file and commit it next to the model in `server/models/`.
 
 **Tests**
@@ -864,6 +865,15 @@ No unresolved product decisions remain.
 | Leaderboard accepted any `:difficulty` | Enum validation, 400 before DB access |
 | Cache merged `www.` and bare host but blocklist did not, so a purge could miss entries | Owner decision: exact `canonicalHost` cache key; purge uses the blocklist matching rule |
 | Disk cache outlived 24 h while the service was down | Face cache moved to process memory; nothing on disk |
+| `.env.example` was not loaded automatically | `--env-file-if-exists=.env`, `cp` step in setup and acceptance |
+| Stack table still said face PNGs on disk | Updated to in-memory cache |
+| 256 px crop cap was below uncapped display size | `K_MAX = 4`, `DPR_MAX = 2`; crop cap derived from them |
+| Cache check-then-set is not atomic across the CLI process | Guarantee defined as check-on-read plus 1 min sweep; tests for both |
+| Headless fulfilled redirects with the final body under the wrong URL | Single-hop mode returns 3xx to Chromium |
+| Blocked third-party image hosts stayed in company cache entries | `sourceHosts` per entry; purge matches them |
+| Rate-event cleanup depended on Phase 8 | Minute job created in Phase 7 |
+| No cap on candidate image requests | 150 candidates, 4 in flight |
+| `scores` migration lacked `submission_id` | Added with `UNIQUE` |
 | Redirect to a blocklisted domain bypassed the takedown | Blocklist checked on every redirect hop |
 | Rate-limit table grew without bound | Hashed IP, prune events older than 1 h |
 | `sharp` and YuNet ignored the abort signal | Worker pool with terminate on deadline |
