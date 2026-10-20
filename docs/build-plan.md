@@ -1,8 +1,8 @@
 # Logistics Run: Build Plan
 
 **Source of truth:** [`docs/requirements/logistics-run-requirements.md`](requirements/logistics-run-requirements.md) (v2, "Decision-complete").
-**Status:** Ready for implementation. No open product blockers.
-**Scope:** Plan only. No code is in this commit.
+**Status:** Phases 1 to 9 implemented; Phase 10 art blocked; Phase 11 repo work done, deploy blocked. See section 7.
+**Scope:** Plan and implementation record.
 
 ---
 
@@ -805,10 +805,12 @@ Phases 9 and 10.
 
 | Type | Item | Blocks |
 |---|---|---|
-| External dependency | Product owner connects the Sprite Fusion MCP (OAuth sign-in) and confirms about 225 to 450 credits with `get_credits` | Phase 10 only. Phases 1 to 9 use placeholders. |
+| External dependency | Product owner connects the Sprite Fusion MCP (OAuth sign-in) and confirms about 225 to 450 credits with `get_credits` | Phase 10 art. Status 2026-10-20: still open; placeholders ship. |
 | Launch gate | Sprite Fusion terms review (C-4) | Public launch only |
-| Config value | `CONTACT_EMAIL` for the takedown link | Phase 11 deploy only. Code uses a config value. |
-| Config value | Railway project, volume and public domain | Phase 11 only |
+| Config value | `CONTACT_EMAIL` for the takedown link | Phase 11 deploy only. Code uses a config value. Still open. |
+| Config value | Railway project, volume and public domain | Phase 11 deploy. Still open. |
+| Host capability | Chromium sandbox on Railway (seccomp) or a separate headless service | Headless retry in production. Still open. |
+| Human check | Manual Medium playtest (3 runs) and SUC-1 on the deployed URL | SUC-1 sign-off. Still open. |
 
 No unresolved product decisions remain.
 
@@ -891,3 +893,98 @@ No unresolved product decisions remain.
 | Migration SQL and its record could commit separately | Same transaction; crash-boundary test |
 | `Difficulty` type-only union has no runtime values for the schema enum | Runtime `DIFFICULTIES` array; type derived from it |
 | Startup check could block local, E2E and CI runs | Fixed values in `.env.example`, Playwright and CI |
+
+---
+
+## 7. Implementation status
+
+Review method per phase: two passes on the full phase diff. Pass 1 checks coverage and correctness against the phase requirements. Pass 2 checks scope, security and verifiability. Findings are classified per `AGENTS.md` (Edits 3): in-task findings are fixed in the phase; out-of-task findings are listed in section 7.2 as proposals.
+
+| Phase | Status | Evidence | Remaining or blocked |
+|---|---|---|---|
+| 1 Scaffold and CI | ✅ Done | Vitest health + 5 migration-runner cases; Playwright home page; `npm start` serves client and `/api/health` | None. CI is green on GitHub (PR runs). |
+| 2 Renderer, input, loop | ✅ Done | Unit: scale `k` table, input map (arrows ignored), rotation, loop freeze, camera snap, manifest contract. E2E: pixel blocks at k=1 and k=2 with a 30 degree sprite (fails when `image-rendering` is not `pixelated`); narrow guard show, freeze, hide. Lint rule blocks `imageSmoothingEnabled = true`. | None |
+| 3 Level, movement, timer | ✅ Done | Unit: one-way land, drop and solid block; timer format, stop and Q-4 start rules; zone order and labeled exit; headless bot traversal 52.4 s (40 to 70 s). E2E: scripted run to the exit with a stopped timer; arrow keys do nothing. | Pacing re-tuned in Phase 4 with combat |
+| 4 Combat, enemies, pause | ⚠️ Done except manual playtest | Unit: spread symmetry, laser wall stop and pierce, invulnerability, lost life resets weapon, 0 lives full reset, pickups, nested difficulty spawn sets, 2 to 3 briefcases per zone, exit with enemies alive. Combat-bot pacing proxy: Easy 59.8 s, Medium 63.6 s, Hard 67.1 s (unit test guards Medium in 60 to 120 s). E2E: pause freeze 2 s and resume, Restart level, pixel blocks during laser + particles + rotated projectiles. | Manual playtest: 3 Medium runs by a competent human player, times recorded in the PR (agent cannot do this) |
+| 5 Theming, faces, menus | ✅ Done | Unit: readability (derive, separate, adjust, unchanged), tint ramps, assign, quality majority and override with uploads. Integration: meta tags on `GET /`, startup fails on missing or invalid `CONTACT_EMAIL` (incl. `mailto:`) or `SOURCE_URL`. E2E: picker on no colors and HUD accent, Smooth on L2 only, Pixelated on L1 only, Auto choice, face pop, pause has exactly 4 items, Sound mutes (gain 0), audio stays suspended in pause, Main menu, Play again reuses data with no network call, footer and About links, Auto and Medium on reload, Enter starts a run. | Visual review done on placeholder art; repeat in Phase 10 |
+| 6 Leaderboard backend | ✅ Done | Integration: idempotent `submissionId`, 12 submits keep 10 rows fastest first with tie order, initials filter and upper-casing, `timeMs` positive integer (no string coercion), per-difficulty boards, `extreme` gives 400 with no row, data survives restart, no IP or domain column. Unit: initials filter. | None |
+| 7 Secure fetch, blocklist | ✅ Done | Unit: 61-row IP table (every blocked class, embedded IPv4 forms, NAT64, strict address forms, public controls); canonical host forms. Integration (fixture servers on 127.0.0.1 and 127.0.0.2, injected resolver): loopback by name and literal rejected with no connect, mixed DNS answers rejected, redirect to 169.254.169.254 and to a private host rejected at the hop, redirect to a blocklisted host gives `blocked_domain`, DNS rebinding never reaches the private server (fails when the pinned lookup is removed), bad schemes and user info rejected, 2 MB cap streamed and declared, 40 MB budget, 5-redirect limit, single-hop mode, content-type check, abort. Blocklist forms, IDN, CLI. Rate limit 5 per hour, hashed IP, 1,000-IP sweep. Trust proxy hops. | Route-level checks (rate limit with cache hits, nothing cached after a blocked redirect) run in Phase 8 with the ingest route |
+| 8 Ingestion, faces, cache | ✅ Done | Unit: colors (brand var wins, gray gives 0, single color, channel lists, shades), crawl (team/about/leadership, off-site ignored, blog author images incl. JSON-LD, srcset, base href), crop (512 x 614 cap, 512 px PNG under the byte cap, 2-face photo gives 2 crops, landscape 0, SVG/text/broken rejected, GIF/WebP/PNG), pool (worker deadline and replacement, abort drops queued and running jobs). Integration: static 6 faces with no headless, cache hit with no slot, 6th ingestion rate-limited with no fetch while cache hits work, bad images discarded, invalid/internal/blocked URLs, redirect to blocked host caches nothing, stall and slow detector give partial by the deadline, 23 h 1 min sweep and 48 h max age, restart leaves no face data, third-party host purge, www and bare host purge, block during an in-flight pipeline, 5,000 images capped at 150 and 4 in flight, upload (2 crops, no disk writes, text, 5 MB and 10-file limits, 20 per hour). Headless (real Chromium): JS-rendered and SPA sites, SSRF via img, fetch and popup, 7-hop chain stops at hop 6, redirect keeps the final URL for relative resources, 5,000 img + 5,000 fetch flood, hung page torn down. Manual: anthropic.com, about.gitlab.com, basecamp.com, mozilla.org all under 6.5 s with colors or an empty color list. | Chromium sandbox on the production host is checked in Phase 11 |
+| 9 Client integration | ⚠️ Done except human SUC-1 sign-off | E2E with mocked API: happy path to JMD on the board, 3 faces then Skip, uploads merge with site faces, partial gives upload prompt and prefilled picker, 0 faces gives placeholders, rate_limited message only, blocked_domain Retry and manual path to the picker, unreachable text, non-qualifying time, submit 500 then retry, lost response then retry stores the run once, failed Top 10 fetch retry, initials filter, malformed URL, bad face skipped. E2E against the real server and a fixture site: full journey with 6 real detected faces to the Top 10. Unit: qualify rule. Automated SUC-1 on a real URL (www.mozilla.org, production server): 14 faces, themed run, time on the Top 10. | SUC-1 by a human tester on the deployed URL (Phase 11) |
+| 10 Final art | ❌ Blocked (art generation) | Done: sprite contract and validation for every shipped sheet, static check that runtime code never names `spritefusion.com`, E2E that records every request in startup and a full run (all requests go to the game server), `docs/art-pipeline.md` (contract, asset list, steps, prompt log). | Product owner signs in to the Sprite Fusion MCP (OAuth) and confirms credits; an agent then generates and commits the PNGs, switches sheets to `png` sources and re-runs the pixel check. Placeholder character and prop art stays until then. |
+| 11 Deploy and launch gate | ⚠️ Repo work done; deploy blocked | `Dockerfile` (Playwright 1.56.1 image, Node 22.20, `npm ci --ignore-scripts`), entrypoint that runs the server as `pwuser`, `deploy/smoke-docker.sh` (run locally and in a CI job): health, server UID 1001, Chromium sandbox on with the Playwright seccomp profile (fails without it), face detection in the image, restart keeps scores, `DATA_DIR` holds no face data, meta tags. `e2e/production.spec.ts` (runs with `PROD_URL`). `docs/operations.md`, `docs/architecture.md`, `docs/launch-checklist.md`, README deploy section. Dependency licenses checked. | Railway project, token, volume and domain; production sandbox check; production smoke test; human SUC-1; launch checklist items 1, 2, 5 to 11 |
+
+### 7.1 Engineering notes
+
+- Phase 1: the server runs TypeScript directly with Node 22 type stripping (Node >= 22.19). There is no server build step. `tsconfig.base.json` sets `erasableSyntaxOnly` so code stays strippable.
+- Phase 1: TypeScript is pinned to `~6.0` because `typescript-eslint` 8.x supports `<6.1.0`. `@playwright/test` is pinned to `1.56.1` to match the Chromium build in the dev container and in CI.
+
+- Phase 2: `PixelCanvas` is the only writer to L1. It rounds every coordinate to whole art pixels (or whole L1 pixels for `fine*`), so non-integer draws cannot reach L1. Code review checklist: no other module calls `getContext` on the pixel layer.
+- Phase 2: the client has a test hook (`window.__lr`) that exists only with the `?e2e` query flag. `?e2e=manual` runs the loop on a manual clock so scripted E2E runs are deterministic and fast. The hook adds no capability beyond what a player already has (the leaderboard is trust-based, C-2).
+- Phase 2: render constants (`K_MAX`, `DPR_MAX`, `HEAD_W_ART = 32`, `MAX_CROP_PX = 512`) live in `shared/src/render.ts` so the Phase 8 crop cap uses the same values.
+- Phase 2: reserved ramps are `CLOTHING_RAMP` (4 neutral grays) and `HIGHLIGHT_RAMP` (4 magentas) in `client/src/assets/manifest.ts`.
+
+- Phase 3: level is 300 x 17 tiles of 16 art px (4,800 px). Run speed 1.5 art px per step (90 px/s), jump apex about 58 px. Every ground obstacle is at most 2 tiles above the ground the player stands on, so the floor route works with jumps only. Racks, trailer roofs, containers and conveyors are optional upper tiers.
+- Phase 3: the world (player and, from Phase 4, enemies) holds still until the first gameplay key. This keeps Q-4 consistent: nothing can happen to the player before the timer runs. Engineering choice, not a product change.
+- Phase 3: props are code-drawn placeholders until Phase 10. The exit sign uses a 3 x 5 pixel font on L1.
+
+- Phase 4: each spawn point releases a small group (walkers 3, shooters 2, 26 px apart). Single enemies died before they reached the player, so combat added only about 2 s on Medium. Enemy HP stays at the planned 2 and 3.
+- Phase 4: enemies jump when blocked by a wall. A walker that cannot clear a tall stack hops in place, which a player can pass or shoot.
+- Phase 4: the combat bot (`client/test/helpers/combatBot.ts`) is one decision function used by the unit pacing test and by the E2E scripted run (its source is sent into the page). The `?e2e` hook exposes `world()` for this.
+- Phase 4: pause menu keys are Tab or W/S to move, Enter to choose and Esc to resume. Arrow keys stay unused (CTL-2).
+
+- Phase 5 deviation: the plan names `client/src/dev/fixtures.ts`. `AGENTS.md` (Edits 9) allows mock data only in tests, so fixture faces and colors live in `e2e/fixtures.ts`. Playwright serves them by mocking `POST /api/ingest`. The shipped client holds no mock data. `client/src/api/client.ts` therefore lands in Phase 5 with `ingest()`; Phase 9 adds the error, loading and upload flow.
+- Phase 5: colors picked in the color picker also pass through `makeReadable`, so a picked color that fails 3:1 is lightened. Readable picks stay unchanged.
+- Phase 5: face pops resample on their source grid: placeholder heads on the art grid, real faces on the L1 grid (the THM-5 finer grid).
+- Phase 5: pause suspends the AudioContext. A key press during pause does not resume it.
+- Phase 5: CI runs on pushes to `main` and on pull requests (one run per PR push instead of two).
+
+- Phase 6: Fastify type coercion is off (`coerceTypes: false`), so `"1000"` is not accepted as `timeMs`. All API errors use `{ error, message }`; schema failures are `bad_request`.
+- Phase 6: a retry of a run that did not place (or was pushed out) inserts again and is pruned again in the same transaction, so the board never shows a duplicate. `rowId` is `null` in that case.
+
+- Phase 7: the IP policy is an allow-list (IPv4 `unicast`, IPv6 `unicast` inside `2000::/3` and outside `2001::/23`). Embedded IPv4 in mapped, compatible, translated, 6to4 and Teredo forms is checked with the IPv4 rule. NAT64 (`64:ff9b::/96`, `64:ff9b:1::/48`) is blocked outright. Only strict address forms parse; anything else fails closed.
+- Phase 7: `rate_events` has a `kind` column so the Phase 8 upload limit (20 per hour) shares the table, the prune and the sweep.
+- Phase 7: `safeFetch` sends no `accept-encoding`, so bodies arrive uncompressed and the byte caps apply to real bytes.
+- Phase 7: `TRUST_PROXY_HOPS` maps to a Fastify trust function (trust the first N hops), because Fastify 5 types have no numeric `trustProxy`.
+
+- Phase 8: model is `face_detection_yunet_2026may.onnx` (OpenCV Zoo re-export of 2023mar with dynamic height and width), MIT license verified from the Zoo `LICENSE` file and committed as `server/models/LICENSE-yunet`. Input is padded to a multiple of 32; the image is downscaled to 640 px for detection and crops come from the full image.
+- Phase 8: crops are PNG with `compressionLevel: 9` and `adaptiveFiltering`. With default PNG settings a detailed 512 x 614 crop was about 456 KB, close to the 512 KiB cap; with these settings it is about 248 KB.
+- Phase 8 deviation (headless redirects): Chromium does not send the request after a fulfilled 3xx back through `context.route`; it went to the dead proxy (verified by test). Main-frame navigations therefore run single-hop and the runner navigates to `location` itself (max 5 hops), so the document URL is the real final URL. Subresources follow redirects inside `safeFetch` (every hop checked, max 5). `redirectedFrom()` counting is not used.
+- Phase 8: pool jobs take the ingestion abort signal. On the deadline queued jobs are dropped and a running job's worker is terminated, so no detection CPU is used past the budget.
+- Phase 8: `.npmrc` sets `onnxruntime-node-install=skip` (CPU only; the linux/x64 install script otherwise downloads CUDA providers from NuGet).
+- Phase 8 (CI fix): face workers are child processes, not worker threads. onnxruntime-node aborted the whole process (SIGABRT, `Napi::Error`) when a worker thread was terminated while it loaded the model. A killed child process cannot abort the server. `close()` also rejects running jobs and waits for the workers to exit. `server/test/helpers/poolChurn.ts` is the regression check.
+- Phase 8: headless runner options `headlessSandbox: false`, `pool.testDetectDelayMs` and `ingestionMs` exist only as `createApp` code overrides for tests.
+
+- Phase 9: the upload prompt focuses the visually hidden file input (Enter opens the chooser; Tab reaches Skip), so the flow works keyboard-only.
+- Phase 9: the initials field has no native `pattern`; the shared `initials.ts` filter is the one check and shows its own message.
+- Phase 9: `e2e/testServer.ts` (test-only) runs the app with an injected resolver and a fixture site for the real-server journey. It waits for the client build that the first Playwright web server makes.
+
+- PR review fixes: the loop reports a frame's full real time before its steps, so the exit frame and the time after a long stall count (only the simulation is capped at 250 ms). Input is blocked while the narrow guard shows. Sprites stand on their lowest opaque row (`feet`), and `loadSheet` throws on a sprite-contract break. Enemy group spawn columns move to the nearest open space. Rotation keeps every opaque pixel of 1-pixel sprites. The rate-limit key is the full IPv4 address or the IPv6 /64 (IPv4-mapped counts as IPv4). Unknown `/api` routes are `not_found`; a 429 is `rate_limited`. A bad `Location` header is `unreachable`. A known `submissionId` under another difficulty gets `rowId: null`.
+
+- Codex review fixes: unread bodies (redirect, error status, wrong type) are dropped, not drained. The connection tries every validated DNS answer. srcset follows the HTML candidate rules (no space needed after a comma). A malformed `%` escape in a link no longer stops the scan. Image candidates (static and headless) go into one `CandidateSet`: deduped and capped at 500 per priority as they arrive. The headless retry charges the same 40 MB byte budget as the static crawl. A cross-site browser upload (`Sec-Fetch-Site`, else `Origin`) is refused before it uses a slot. The face pool holds at most 16 waiting jobs (`PoolBusy`, upload answers 503 `busy`), and a job's deadline starts when it is submitted. A spent byte budget opens no new connection. The headless homepage load counts toward the 12-page cap. A Chromium that dies between sessions is relaunched. HTML nested deeper than 2,000 (estimated in one linear pass) is skipped before parse5, whose time is quadratic in depth; the element walk and text extraction are iterative. A settled face job removes its abort listener. An upload body is cut off at the request deadline. Page links keep routing query parameters and drop tracking ones. The minimum face width (40 px) is checked in source pixels. An upload past the deadline is `upload_rejected`. Skip is disabled while an upload is pending. A late Top 10 answer for an earlier run changes nothing.
+
+- Phase 11: the image installs with `npm ci --ignore-scripts`. All native deps ship prebuilt binaries; the image npm otherwise ran `node-gyp rebuild` for better-sqlite3 and failed without a compiler. The smoke script proves detection works in the image.
+- Phase 11: Railway volume ownership is an unverified assumption (volumes may mount as root). The entrypoint handles both cases: as root it fixes the owner of `DATA_DIR` and drops to `pwuser` with `setpriv`.
+- Phase 11: with the default Docker seccomp profile the Chromium sandbox does not start (verified). Production needs the Playwright profile or an isolated headless service (launch checklist item 5). Without it the server logs the launch error and serves static results only.
+
+### 7.2 Proposed out-of-scope fixes
+
+Found during implementation. Not in any phase; not built. Each needs a decision.
+
+| # | Proposal | Why |
+|---|---|---|
+| P-1 | Redact client IPs from Fastify request logs (`req.remoteAddress`, `x-forwarded-for`) | Rate events store only an IP hash, but default request logs still print raw IPs. The plan only defines ingestion log fields. |
+| P-2 | Fall back from `crypto.randomUUID()` to a `crypto.getRandomValues` UUID | `randomUUID` exists only in secure contexts. Production (https) and localhost work; plain-http access over a LAN would fail to submit scores. |
+| P-3 | Move `actions/upload-artifact` to a release that targets Node 24 | GitHub warns that the v4 action runs on deprecated Node 20. |
+
+### 7.3 Requirement status at the end of this implementation
+
+Every requirement ID in section 4 has code and a passing check, except these:
+
+| ID | Status | What is missing |
+|---|---|---|
+| RND-5, THM-3 (art), ENM-2 (art), C-3 | Blocked | Sprite Fusion art (product owner OAuth sign-in). Placeholder art follows the same contract. |
+| C-4 | Open | Sprite Fusion terms review (launch checklist item 1). |
+| DEL-1, DEL-2 (hosted) | Open | Railway deploy (project, token, volume, domain). The image passes the Docker smoke test. |
+| ING-6 (production) | Open | Chromium sandbox on the production host or an isolated headless service (launch checklist item 5). Tested in CI and locally with the Playwright seccomp profile. |
+| SUC-1, LVL-4 (human) | Open | Human SUC-1 on the deployed URL and 3 recorded Medium playtests. Automated: real-URL SUC-1 run on the production server build, Medium bot proxy 63.6 s. |
