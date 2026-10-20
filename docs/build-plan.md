@@ -21,12 +21,12 @@
 | Q-1 | Spec conflict: 2.4 puts the pixel layer above all high-res layers. 2.3 puts Smooth faces on a high-res layer above the pixel-art body. | Add a third layer. Stack (bottom to top): high-res background, pixel layer, high-res face overlay, DOM UI. Smooth faces draw over bodies and over any pixel art in front of them. |
 | Q-2 | Does a cache hit count toward the 5 ingestions per IP per hour? | No. Only requests that fetch the target site count. |
 | Q-3 | Plan location. | `docs/build-plan.md` |
+| I-1 | "Faces go on random enemies": which enemies get a face? | Every enemy. The game assigns faces from a shuffled list. A face repeats only when there are fewer faces than enemies. |
+| I-2 | Do uploads after partial ingestion add to or replace site faces? | Add to. The run uses site faces plus uploads. |
+| I-3 | Does "Play again" reuse loaded data or ingest again? | Reuse. Same faces, uploads and colors from browser memory. No new ingestion. |
 
 ### 0.3 Interpretations (no product change, flag if wrong)
 
-- **I-1 "Faces go on random enemies":** every enemy gets a face. The game assigns faces from a shuffled list. A face repeats only when there are fewer faces than enemies.
-- **I-2 Upload after partial ingestion:** uploaded faces add to the faces the server found. They do not replace them.
-- **I-3 "Play again":** reuses the faces and colors already in browser memory. It does not start a new ingestion.
 - **I-4 Respawn in place:** the level has no bottomless pits, so "in place" is always a valid position.
 
 ### 0.4 Requirement IDs
@@ -123,7 +123,7 @@ shared/src/
   initials.ts                3-letter filter (used by client and server)
 server/src/
   index.ts  app.ts  config.ts
-  db/        schema.sql  db.ts
+  db/        db.ts  migrations/
   net/       safeFetch.ts  ipPolicy.ts  limits.ts
   ingest/    pipeline.ts  colors.ts  crawl.ts  headless.ts  images.ts
   faces/     detector.ts  crop.ts
@@ -181,6 +181,7 @@ DEL-1 (foundation only).
 - Create root `package.json` (workspaces `client`, `server`, `shared`), `tsconfig.base.json`, ESLint + Prettier config, `.gitignore`, `.nvmrc` (Node 22).
 - Create `shared/` with `Difficulty` type (`easy | medium | hard`).
 - Create `server/src/app.ts` (Fastify factory, injectable config for tests), `server/src/index.ts`, `routes/health.ts` (`GET /api/health`).
+- Create `server/src/db/db.ts`: SQLite at `${DATA_DIR}/app.db` (`better-sqlite3`) and a migration runner (numbered SQL files in `server/src/db/migrations/`, version in `PRAGMA user_version`, run at startup). No tables yet. Phases 6, 7 and 8 each add their own migration file.
 - Serve `client/dist` with `@fastify/static` in production. Vite proxies `/api` in dev.
 - Create `client/index.html`, `client/src/main.ts` (blank canvas stack placeholder).
 - Create `.github/workflows/ci.yml`: install, lint, typecheck, Vitest, Playwright E2E (Chromium).
@@ -192,6 +193,7 @@ DEL-1 (foundation only).
 
 **Tests**
 - Vitest: health route returns 200.
+- Vitest: migration runner applies numbered files in order once, and a second start applies nothing.
 - Playwright: home page loads with no console errors.
 
 **Acceptance criteria**
@@ -402,7 +404,7 @@ A persistent global Top 10 per difficulty with a trust-based submit.
 LB-1, LB-2, LB-4, C-2.
 
 **Changes**
-- `server/src/db/schema.sql`, `db.ts`: SQLite at `${DATA_DIR}/app.db`. Table `scores(id, difficulty, initials, time_ms, created_at)`, index on `(difficulty, time_ms, created_at)`. Migrations run at startup (numbered SQL files, version in `PRAGMA user_version`).
+- Migration `server/src/db/migrations/001_scores.sql`: table `scores(id, difficulty, initials, time_ms, created_at)`, index on `(difficulty, time_ms, created_at)`. Uses the Phase 1 migration runner.
 - `shared/src/initials.ts`: `/^[A-Za-z]{3}$/`, normalize to upper case.
 - `server/src/routes/leaderboard.ts`:
   - `GET /api/leaderboard/:difficulty` returns Top 10 ordered by `time_ms` asc, then `created_at` asc.
@@ -445,7 +447,9 @@ SEC-1, SEC-2, SEC-3, SEC-5 (rejection), ING-8 (rate limit), E-1, E-2, E-4, E-7, 
   - Per-request timeout, honors the shared 30 s ingestion `AbortSignal`.
   - Body cap streamed: HTML 2 MB, CSS 1 MB, image 5 MB; ingestion total 40 MB. Abort on overflow.
 - `server/src/net/limits.ts`: constants above in one place.
-- `server/src/policy/blocklist.ts`: table `blocklist(domain, created_at)`. A host matches if it equals an entry or ends with `.` + entry.
+- `server/src/net/hostname.ts`: `canonicalHost(host)`: lowercase, IDNA to ASCII (punycode via WHATWG `URL`), strip every trailing root dot, reject empty labels. All blocklist entries, blocklist checks, cache keys and rate-limit logs use this form.
+- Migrations `002_blocklist.sql` and `003_rate_limit.sql` (Phase 1 runner).
+- `server/src/policy/blocklist.ts`: table `blocklist(domain, created_at)`, entries stored in canonical form. A canonical host matches if it equals an entry or ends with `.` + entry.
 - `server/src/cli/blocklist.ts`: `npm run blocklist -- add|remove|list <domain>`. `add` also purges the domain cache (Phase 8 hook).
 - `server/src/policy/rateLimit.ts`: sliding window, 5 per IP per hour, in SQLite (survives restarts). A slot is used only when a real fetch starts. Cache hits, invalid URLs and blocklisted URLs use no slot (Q-2).
 - Fastify `trustProxy` set from config (Railway runs one proxy hop) so `request.ip` is the client IP.
@@ -462,7 +466,7 @@ SEC-1, SEC-2, SEC-3, SEC-5 (rejection), ING-8 (rate limit), E-1, E-2, E-4, E-7, 
   - resolver that returns public then private (rebinding) never connects to the private address;
   - `ftp://`, `file://`, `javascript:` and `http://user:pass@host` are rejected;
   - a 3 MB HTML body aborts at 2 MB.
-- Integration: blocklisted `example.com` rejects `example.com` and `www.example.com`, allows `notexample.com`.
+- Integration: blocklisted `example.com` rejects `example.com`, `www.example.com`, `EXAMPLE.com`, `example.com.` and `www.example.com..`; allows `notexample.com`. CLI `add Example.COM.` stores `example.com`. An IDN entry matches both its Unicode and punycode request forms.
 - Integration: 6th uncached ingestion in one hour from one IP returns `rate_limited` and no fetch happens; cache hits after that still succeed.
 
 **Acceptance criteria**
@@ -494,7 +498,7 @@ ING-3 to ING-9, SEC-3, SEC-4, C-1, D-2, D-3, E-3, E-7.
   - WebSockets closed via `routeWebSocket`; service workers blocked; WebRTC non-proxied UDP disabled; browser `proxy` set to a dead local port so any request that escapes routing fails;
   - after load, collect rendered image URLs and feed them to `images.ts`;
   - max 2 headless sessions at once; queued requests count against their own 30 s budget.
-- `server/src/cache/faceCache.ts` (ING-9, C-1): key = lowercase hostname without `www.`. Files under `${DATA_DIR}/faces/<sha256(key)>/`. Index row `(key, colors_json, created_at)`. Cache only complete ingestions (not `partial`). Cache TTL is 23 h for reads (`CACHE_TTL`), so the sweeper interval cannot push any file past 24 h (C-1).
+- `server/src/cache/faceCache.ts` (ING-9, C-1): key = `canonicalHost` (Phase 7) without a leading `www.`. Files under `${DATA_DIR}/faces/<sha256(key)>/`. Index row `(key, colors_json, created_at)` in migration `004_face_cache.sql`. Cache only complete ingestions (not `partial`). Cache TTL is 23 h for reads (`CACHE_TTL`), so the sweeper interval cannot push any file past 24 h (C-1).
 - `server/src/cache/sweeper.ts`: at startup and every 10 min, delete entries and files older than `CACHE_TTL` (23 h). Worst-case file lifetime is 23 h 10 min, under the 24 h limit.
 - `server/src/routes/ingest.ts`: order: validate URL, blocklist, cache lookup, rate limit, pipeline. Response type in `shared/src/api.ts`: `{domain, colors: string[], faces: [{id, dataUrl, width, height}], partial, source: "cache" | "static" | "headless"}`.
 - `server/src/routes/upload.ts` (ING-7, D-2): `POST /api/faces/upload`, multipart, max 10 files, 5 MB each. Same decode, detect and crop path. Processed in memory. Never written to disk or cache. Returns face crops in the same shape. Light abuse limit: 20 upload requests per IP per hour.
@@ -665,7 +669,7 @@ Phases 9 and 10.
 | Licensing | AGPL source link; dependency and model license check; Sprite Fusion terms (C-4); no copied third-party assets (C-3) | 8, 10, 11 |
 | Accessibility | Keyboard-only is a requirement, so all menus must work with keyboard (Tab, Enter). Text contrast via readability module. No further a11y scope. | 5, 9 |
 | Observability | Structured Fastify logs: ingestion domain, outcome code, duration, face count, source. No face data. | 8 |
-| Data migrations | Numbered SQL migrations with `PRAGMA user_version` from the first schema | 6 |
+| Data migrations | Numbered SQL migrations with `PRAGMA user_version`; runner in Phase 1, one file per feature | 1, 6, 7, 8 |
 | Rollback | Railway redeploy of the previous image. Migrations are additive only, so a previous image runs on a newer schema. | 11 |
 
 ---
@@ -838,3 +842,6 @@ No unresolved product decisions remain.
 | Chromium ran as root without sandbox | Non-root user, sandbox on, or isolated headless service |
 | Blocklist add during in-flight ingestion | Blocklist recheck in the cache-write transaction |
 | Requirements file not in repo | Committed at `docs/requirements/` |
+| Blocklist bypass via `example.com.` or case or IDN forms | `canonicalHost` for entries, checks and cache keys |
+| Phase 7 needed SQLite before Phase 6 created it | DB wrapper and migration runner moved to Phase 1 |
+| Upload merge, enemy faces and Play again were unconfirmed | Confirmed by owner; moved to section 0.2 |
