@@ -51,12 +51,43 @@ export async function startRun(page: Page, opts: StartOptions = {}) {
   await page.getByRole('button', { name: 'Start' }).click();
 }
 
+export type Screen = 'game' | 'upload' | 'picker' | 'error' | 'loading';
+
+/** The screen shown after Start, once ingestion has answered. */
+export async function screen(page: Page): Promise<Screen> {
+  for (let i = 0; i < 200; i++) {
+    if (await page.getByRole('dialog', { name: 'Add faces' }).isVisible()) return 'upload';
+    if (await page.getByRole('dialog', { name: 'Pick brand colors' }).isVisible()) return 'picker';
+    if (await page.getByRole('alertdialog', { name: 'Problem' }).isVisible()) return 'error';
+    const scene = await page.evaluate(
+      () => (window.__lr!.state() as { scene: { scene: string } }).scene.scene,
+    );
+    if (scene === 'game') return 'game';
+    await page.waitForTimeout(50);
+  }
+  return 'loading';
+}
+
+/** Steps through the upload prompt (Skip) and the color picker (keep prefill) to the run. */
+export async function enterGame(page: Page) {
+  for (let i = 0; i < 4; i++) {
+    const s = await screen(page);
+    if (s === 'game') return;
+    if (s === 'upload')
+      await page
+        .getByRole('dialog', { name: 'Add faces' })
+        .getByRole('button', { name: /Skip|Continue/ })
+        .click();
+    else if (s === 'picker') await page.getByRole('button', { name: 'Use these colors' }).click();
+    else throw new Error(`stuck on ${s}`);
+  }
+  throw new Error('game did not start');
+}
+
 /** Starts a run and waits for the game scene. */
 export async function openGame(page: Page, query = 'e2e=manual', opts: StartOptions = {}) {
   await startRun(page, { ...opts, query });
-  await page.waitForFunction(
-    () => (window.__lr!.state() as { scene: { scene: string } }).scene.scene === 'game',
-  );
+  await enterGame(page);
 }
 
 const LABEL: Record<string, string> = {

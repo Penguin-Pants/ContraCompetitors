@@ -1,4 +1,13 @@
-import type { ApiErrorBody, ApiErrorCode, IngestResponse } from '@lr/shared/api';
+import type {
+  ApiErrorBody,
+  ApiErrorCode,
+  IngestResponse,
+  LeaderboardResponse,
+  SubmitScoreRequest,
+  SubmitScoreResponse,
+  UploadResponse,
+} from '@lr/shared/api';
+import type { Difficulty } from '@lr/shared/difficulty';
 
 export class ApiError extends Error {
   readonly code: ApiErrorCode;
@@ -33,5 +42,28 @@ export function ingest(url: string): Promise<IngestResponse> {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ url }),
+  });
+}
+
+/** Uploads face images (ING-7). The server keeps nothing (D-2). */
+export function uploadFaces(files: readonly File[]): Promise<UploadResponse> {
+  const form = new FormData();
+  for (const f of files) form.append('faces', f, f.name);
+  return request('/api/faces/upload', { method: 'POST', body: form });
+}
+
+export function getLeaderboard(difficulty: Difficulty): Promise<LeaderboardResponse> {
+  return request(`/api/leaderboard/${difficulty}`, { method: 'GET' });
+}
+
+/** Safe to retry with the same `submissionId`: the server stores a run once. */
+export function submitScore(
+  difficulty: Difficulty,
+  body: SubmitScoreRequest,
+): Promise<SubmitScoreResponse> {
+  return request(`/api/leaderboard/${difficulty}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
   });
 }

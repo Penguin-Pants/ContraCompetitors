@@ -93,6 +93,11 @@ test('menu keyboard: Tab reaches Start and Enter starts the run', async ({ page 
   await page.goto('/?e2e=manual');
   await page.getByLabel('Company website').fill('example.test');
   await page.getByLabel('Company website').press('Enter');
+  await expect(page.getByRole('dialog', { name: 'Add faces' })).toBeVisible();
+  // Keyboard only: the file input has focus; Tab to Skip and press Enter.
+  await expect(page.locator('#face-files')).toBeFocused();
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('Enter');
   await page.waitForFunction(
     () => (window.__lr!.state() as { scene: { scene: string } }).scene.scene === 'game',
   );

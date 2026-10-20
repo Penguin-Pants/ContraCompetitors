@@ -21,19 +21,26 @@ export class FaceStore {
     return this.byId.size;
   }
 
-  /** Adds faces. A known id is kept as it is (uploads add to site faces, I-2). */
+  /**
+   * Adds faces. A known id is kept as it is (uploads add to site faces, I-2). A face that does not
+   * decode is skipped, so one bad entry cannot stop the run.
+   */
   async addDtos(dtos: readonly FaceDto[], origin: FaceEntry['origin']) {
     for (const dto of dtos) {
-      if (this.byId.has(dto.id)) continue;
-      const blob = await (await fetch(dto.dataUrl)).blob();
-      const bitmap = await createImageBitmap(blob);
-      this.byId.set(dto.id, {
-        id: dto.id,
-        bitmap,
-        srcWidth: bitmap.width,
-        srcHeight: bitmap.height,
-        origin,
-      });
+      if (this.byId.has(dto.id) || !dto.dataUrl.startsWith('data:image/')) continue;
+      try {
+        const blob = await (await fetch(dto.dataUrl)).blob();
+        const bitmap = await createImageBitmap(blob);
+        this.byId.set(dto.id, {
+          id: dto.id,
+          bitmap,
+          srcWidth: bitmap.width,
+          srcHeight: bitmap.height,
+          origin,
+        });
+      } catch {
+        // Skip it.
+      }
     }
   }
 

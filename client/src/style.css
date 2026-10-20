@@ -264,3 +264,76 @@ body {
   margin: 0;
   max-width: 22em;
 }
+
+.loading-bar {
+  width: 22em;
+  height: 0.6em;
+  border: 0.12em solid #3a4150;
+}
+
+.loading-fill {
+  width: 0;
+  height: 100%;
+  background: var(--primary);
+}
+
+.error-text {
+  margin: 0;
+  max-width: 30em;
+  color: #ffb4a8;
+}
+
+.upload input[type='file'] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.upload label.menu-button {
+  display: inline-block;
+}
+
+.upload label.menu-button:has(+ input:focus-visible) {
+  border-color: var(--primary);
+}
+
+.intro {
+  max-width: 30em;
+  margin: 0;
+  text-align: center;
+}
+
+.board {
+  margin: 0;
+  padding: 0;
+  min-width: 14em;
+  list-style: none;
+  counter-reset: rank;
+  font-variant-numeric: tabular-nums;
+}
+
+.board li {
+  display: flex;
+  gap: 1em;
+  justify-content: space-between;
+  counter-increment: rank;
+}
+
+.board li::before {
+  content: counter(rank) '.';
+  min-width: 2em;
+}
+
+.board li.mine {
+  color: var(--primary);
+}
+
+.initials-form input {
+  text-transform: uppercase;
+  letter-spacing: 0.3em;
+}
+
+.leaderboard-slot h3 {
+  margin: 0.3em 0;
+}

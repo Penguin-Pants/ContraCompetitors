@@ -1,11 +1,13 @@
 import { expect, test } from '@playwright/test';
 import { ingestResponse } from './fixtures.ts';
-import { gameState, startRun } from './helpers.ts';
+import { gameState, screen, startRun } from './helpers.ts';
 
 test('no colors opens the color picker; picked colors appear in the HUD accent', async ({
   page,
 }) => {
   await startRun(page, { ingest: ingestResponse({ colors: [] }) });
+  expect(await screen(page)).toBe('upload');
+  await page.getByRole('button', { name: 'Skip' }).click();
   const picker = page.getByRole('dialog', { name: 'Pick brand colors' });
   await expect(picker).toBeVisible();
   await picker.getByLabel('Primary color').fill('#ff8800');
@@ -25,6 +27,8 @@ test('no colors opens the color picker; picked colors appear in the HUD accent',
 
 test('found colors skip the picker and are auto-adjusted for readability', async ({ page }) => {
   await startRun(page, { ingest: ingestResponse({ colors: ['#1a237e'] }) });
+  expect(await screen(page)).toBe('upload');
+  await page.getByRole('button', { name: 'Skip' }).click();
   await page.waitForFunction(
     () => (window.__lr!.state() as { scene: { scene: string } }).scene.scene === 'game',
   );

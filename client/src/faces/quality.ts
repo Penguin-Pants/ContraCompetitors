@@ -1,5 +1,8 @@
 import { HEAD_W_ART, PIXEL_SCALE } from '@lr/shared/render';
 
+/** Fewer faces than this prompts for uploads (ING-7). Matches the server headless trigger. */
+export const MIN_FACES = 5;
+
 export type FaceStyleSetting = 'auto' | 'smooth' | 'pixelated';
 export type FaceStyle = 'smooth' | 'pixelated';
 
