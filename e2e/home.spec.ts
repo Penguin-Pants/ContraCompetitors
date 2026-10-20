@@ -7,6 +7,6 @@ test('home page loads with no console errors', async ({ page }) => {
   });
   page.on('pageerror', (err) => errors.push(err.message));
   await page.goto('/');
-  await expect(page.locator('canvas').first()).toBeVisible();
+  await expect(page.locator('canvas[data-layer="pixel"]')).toBeVisible();
   expect(errors).toEqual([]);
 });

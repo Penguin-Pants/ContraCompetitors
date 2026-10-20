@@ -19,7 +19,7 @@
     "e2e": "playwright test",
     "lint": "eslint . && prettier --check .",
     "format": "prettier --write .",
-    "typecheck": "tsc -p shared && tsc -p server && tsc -p client"
+    "typecheck": "tsc -p shared && tsc -p server && tsc -p client && tsc -p e2e"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

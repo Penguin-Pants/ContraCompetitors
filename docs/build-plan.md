@@ -901,7 +901,7 @@ Review method per phase: two passes on the full phase diff. Pass 1 checks covera
 | Phase | Status | Evidence | Remaining or blocked |
 |---|---|---|---|
 | 1 Scaffold and CI | ✅ Done | Vitest health + 5 migration-runner cases; Playwright home page; `npm start` serves client and `/api/health` | CI green on GitHub is confirmed on the PR |
-| 2 Renderer, input, loop | Not started | | |
+| 2 Renderer, input, loop | ✅ Done | Unit: scale `k` table, input map (arrows ignored), rotation, loop freeze, camera snap, manifest contract. E2E: pixel blocks at k=1 and k=2 with a 30 degree sprite (fails when `image-rendering` is not `pixelated`); narrow guard show, freeze, hide. Lint rule blocks `imageSmoothingEnabled = true`. | None |
 | 3 Level, movement, timer | Not started | | |
 | 4 Combat, enemies, pause | Not started | | |
 | 5 Theming, faces, menus | Not started | | |
@@ -916,6 +916,11 @@ Review method per phase: two passes on the full phase diff. Pass 1 checks covera
 
 - Phase 1: the server runs TypeScript directly with Node 22 type stripping (Node >= 22.19). There is no server build step. `tsconfig.base.json` sets `erasableSyntaxOnly` so code stays strippable.
 - Phase 1: TypeScript is pinned to `~6.0` because `typescript-eslint` 8.x supports `<6.1.0`. `@playwright/test` is pinned to `1.56.1` to match the Chromium build in the dev container and in CI.
+
+- Phase 2: `PixelCanvas` is the only writer to L1. It rounds every coordinate to whole art pixels (or whole L1 pixels for `fine*`), so non-integer draws cannot reach L1. Code review checklist: no other module calls `getContext` on the pixel layer.
+- Phase 2: the client has a test hook (`window.__lr`) that exists only with the `?e2e` query flag. `?e2e=manual` runs the loop on a manual clock so scripted E2E runs are deterministic and fast. The hook adds no capability beyond what a player already has (the leaderboard is trust-based, C-2).
+- Phase 2: render constants (`K_MAX`, `DPR_MAX`, `HEAD_W_ART = 32`, `MAX_CROP_PX = 512`) live in `shared/src/render.ts` so the Phase 8 crop cap uses the same values.
+- Phase 2: reserved ramps are `CLOTHING_RAMP` (4 neutral grays) and `HIGHLIGHT_RAMP` (4 magentas) in `client/src/assets/manifest.ts`.
 
 ### 7.2 Proposed out-of-scope fixes
 
