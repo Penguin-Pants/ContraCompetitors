@@ -64,3 +64,20 @@ body {
 .narrow-guard[hidden] {
   display: none;
 }
+
+.hud {
+  position: absolute;
+  top: 0.8em;
+  left: 1em;
+  display: flex;
+  gap: 1.5em;
+  font-size: 1.6em;
+  text-shadow: 0 0.1em 0 #000;
+  pointer-events: none;
+}
+
+.hud-time {
+  color: var(--ui-text);
+  border-bottom: 0.15em solid var(--primary);
+  font-variant-numeric: tabular-nums;
+}

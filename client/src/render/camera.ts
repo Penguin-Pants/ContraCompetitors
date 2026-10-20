@@ -5,15 +5,10 @@ export class Camera {
   x = 0;
   y = 0;
 
-  private worldW: number;
-  private worldH: number;
+  private readonly worldW: number;
+  private readonly worldH: number;
 
   constructor(worldW: number, worldH: number) {
-    this.worldW = worldW;
-    this.worldH = worldH;
-  }
-
-  setWorld(worldW: number, worldH: number) {
     this.worldW = worldW;
     this.worldH = worldH;
   }

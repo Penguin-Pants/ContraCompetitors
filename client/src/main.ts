@@ -6,6 +6,9 @@ import { createLayers, layoutLayers } from './render/layers.ts';
 import { PixelCanvas } from './render/pixelCanvas.ts';
 import type { Scene, SceneContext } from './scenes/scene.ts';
 import { createTestScene } from './scenes/testScene.ts';
+import { createGameScene } from './scenes/gameScene.ts';
+import { loadSheet } from './assets/loader.ts';
+import { PLAYER_SHEET } from './assets/placeholders.ts';
 import { NarrowGuard } from './ui/narrowGuard.ts';
 
 const app = document.getElementById('app')!;
@@ -24,7 +27,11 @@ window.addEventListener('resize', relayout);
 relayout();
 
 const ctx: SceneContext = { layers, pixels, input };
-const scene: Scene = createTestScene(ctx);
+const params = new URLSearchParams(location.search);
+const scene: Scene =
+  params.get('scene') === 'test'
+    ? createTestScene(ctx)
+    : createGameScene(ctx, { player: await loadSheet(PLAYER_SHEET) });
 
 const loop = new Loop({
   update: (ms) => scene.update(ms),
