@@ -905,7 +905,7 @@ Review method per phase: two passes on the full phase diff. Pass 1 checks covera
 | 3 Level, movement, timer | ✅ Done | Unit: one-way land, drop and solid block; timer format, stop and Q-4 start rules; zone order and labeled exit; headless bot traversal 52.4 s (40 to 70 s). E2E: scripted run to the exit with a stopped timer; arrow keys do nothing. | Pacing re-tuned in Phase 4 with combat |
 | 4 Combat, enemies, pause | ⚠️ Done except manual playtest | Unit: spread symmetry, laser wall stop and pierce, invulnerability, lost life resets weapon, 0 lives full reset, pickups, nested difficulty spawn sets, 2 to 3 briefcases per zone, exit with enemies alive. Combat-bot pacing proxy: Easy 59.8 s, Medium 63.6 s, Hard 67.1 s (unit test guards Medium in 60 to 120 s). E2E: pause freeze 2 s and resume, Restart level, pixel blocks during laser + particles + rotated projectiles. | Manual playtest: 3 Medium runs by a competent human player, times recorded in the PR (agent cannot do this) |
 | 5 Theming, faces, menus | ✅ Done | Unit: readability (derive, separate, adjust, unchanged), tint ramps, assign, quality majority and override with uploads. Integration: meta tags on `GET /`, startup fails on missing or invalid `CONTACT_EMAIL` (incl. `mailto:`) or `SOURCE_URL`. E2E: picker on no colors and HUD accent, Smooth on L2 only, Pixelated on L1 only, Auto choice, face pop, pause has exactly 4 items, Sound mutes (gain 0), audio stays suspended in pause, Main menu, Play again reuses data with no network call, footer and About links, Auto and Medium on reload, Enter starts a run. | Visual review done on placeholder art; repeat in Phase 10 |
-| 6 Leaderboard backend | Not started | | |
+| 6 Leaderboard backend | ✅ Done | Integration: idempotent `submissionId`, 12 submits keep 10 rows fastest first with tie order, initials filter and upper-casing, `timeMs` positive integer (no string coercion), per-difficulty boards, `extreme` gives 400 with no row, data survives restart, no IP or domain column. Unit: initials filter. | None |
 | 7 Secure fetch, blocklist | Not started | | |
 | 8 Ingestion, faces, cache | Not started | | |
 | 9 Client integration | Not started | | |
@@ -936,6 +936,9 @@ Review method per phase: two passes on the full phase diff. Pass 1 checks covera
 - Phase 5: face pops resample on their source grid: placeholder heads on the art grid, real faces on the L1 grid (the THM-5 finer grid).
 - Phase 5: pause suspends the AudioContext. A key press during pause does not resume it.
 - Phase 5: CI runs on pushes to `main` and on pull requests (one run per PR push instead of two).
+
+- Phase 6: Fastify type coercion is off (`coerceTypes: false`), so `"1000"` is not accepted as `timeMs`. All API errors use `{ error, message }`; schema failures are `bad_request`.
+- Phase 6: a retry of a run that did not place (or was pushed out) inserts again and is pruned again in the same transaction, so the board never shows a duplicate. `rowId` is `null` in that case.
 
 ### 7.2 Proposed out-of-scope fixes
 
