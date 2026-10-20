@@ -19,6 +19,8 @@ interface Pending {
   job: WorkerJob;
   /** Started when the job is submitted, so time in the queue counts toward the deadline. */
   timer: NodeJS.Timeout | null;
+  /** Removes the abort listener, so a settled job holds no reference from the shared signal. */
+  unlisten: () => void;
   resolve: (crops: FaceCrop[]) => void;
   reject: (err: Error) => void;
 }
@@ -147,6 +149,7 @@ export class FacePool {
   private settle(p: Pending) {
     if (p.timer) clearTimeout(p.timer);
     p.timer = null;
+    p.unlisten();
   }
 
   /**
@@ -159,11 +162,19 @@ export class FacePool {
     if (timeoutMs <= 0 || signal?.aborted) return Promise.reject(new PoolTimeout('no time left'));
     if (this.queue.length >= MAX_QUEUED) return Promise.reject(new PoolBusy('face queue full'));
     return new Promise((resolve, reject) => {
-      const pending: Pending = { job: { id: this.nextId++, bytes }, timer: null, resolve, reject };
+      const pending: Pending = {
+        job: { id: this.nextId++, bytes },
+        timer: null,
+        unlisten: () => {},
+        resolve,
+        reject,
+      };
       pending.timer = setTimeout(() => this.cancel(pending, 'face job deadline'), timeoutMs);
-      signal?.addEventListener('abort', () => this.cancel(pending, 'ingestion deadline'), {
-        once: true,
-      });
+      if (signal) {
+        const onAbort = () => this.cancel(pending, 'ingestion deadline');
+        signal.addEventListener('abort', onAbort, { once: true });
+        pending.unlisten = () => signal.removeEventListener('abort', onAbort);
+      }
       this.queue.push(pending);
       this.pump();
     });

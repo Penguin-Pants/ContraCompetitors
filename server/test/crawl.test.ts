@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { largestFromSrcset, scanHtml, selectPages } from '../src/ingest/crawl.ts';
+import { MAX_DEPTH, nestingDepth } from '../src/ingest/html.ts';
 
 const HOME = `<!doctype html><html><head>
 <link rel="stylesheet" href="/css/site.css"><style>:root{--primary:#e4002b}</style>
@@ -96,5 +97,61 @@ describe('crawl', () => {
     ];
     const pages = selectPages(links, 'https://corp.test/', new Set());
     expect(pages.map((p) => p.kind)).toEqual(['team', 'team']);
+  });
+
+  test('nesting up to MAX_DEPTH is scanned and finds author images and link text', () => {
+    const d = MAX_DEPTH - 10;
+    const html =
+      '<div class="author">' +
+      '<div>'.repeat(d / 2) +
+      '<img src="/me.jpg"><a href="/team">' +
+      '<span>'.repeat(d / 2) +
+      'Team' +
+      '</span>'.repeat(d / 2) +
+      '</a>' +
+      '</div>'.repeat(d / 2) +
+      '</div>';
+    const scan = scanHtml(html, 'https://corp.test/blog/post', 'blogPost');
+    expect(scan.images).toContainEqual({ url: 'https://corp.test/me.jpg', priority: 2 });
+    expect(scan.links.map((l) => l.text)).toContain('Team');
+  });
+
+  test('a page nested deeper than MAX_DEPTH (2 MB of open and close tags) is skipped at once', () => {
+    const d = 180_000;
+    const html = '<div>'.repeat(d) + '<img src="/x.jpg">' + '</div>'.repeat(d);
+    const t0 = Date.now();
+    expect(scanHtml(html, 'https://corp.test/', 'home').images).toEqual([]);
+    expect(Date.now() - t0).toBeLessThan(1000);
+  });
+
+  test('2 MB of unclosed <script or <a tags is checked in linear time', () => {
+    const t0 = Date.now();
+    scanHtml('<script'.repeat(280_000), 'https://corp.test/', 'home');
+    scanHtml('<a'.repeat(1_000_000), 'https://corp.test/', 'home');
+    expect(Date.now() - t0).toBeLessThan(2000);
+  });
+
+  test('nestingDepth ignores void and optional-end tags, so ordinary markup stays shallow', () => {
+    expect(nestingDepth('<ul>' + '<li>item<br><img src=a>'.repeat(5000) + '</ul>')).toBe(1);
+    expect(nestingDepth('<p>a<p>b<p>c<div><span>x</span></div>')).toBe(2);
+    expect(nestingDepth('<div><svg><path/></svg></div>')).toBe(2);
+    // Tag-like text in scripts, styles and comments is not markup.
+    const js = `<script>const t = "${'<div>'.repeat(5000)}";</script>`;
+    expect(
+      nestingDepth(`<main>${js}<style>a::before{content:"<b>"}</style><!-- <div> --></main>`),
+    ).toBe(1);
+  });
+
+  test('routing query parameters are kept; tracking parameters are dropped for dedupe', () => {
+    const links = [
+      { url: 'https://corp.test/?page=team', text: 'Our team' },
+      { url: 'https://corp.test/about?utm_source=x&fbclid=y', text: 'About' },
+      { url: 'https://corp.test/about', text: 'About us' },
+    ];
+    const pages = selectPages(links, 'https://corp.test/', new Set(['https://corp.test/']));
+    expect(pages.map((p) => p.url)).toEqual([
+      'https://corp.test/?page=team',
+      'https://corp.test/about',
+    ]);
   });
 });

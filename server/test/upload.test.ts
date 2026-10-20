@@ -113,6 +113,24 @@ describe('upload', () => {
       expect((await upload(t.app, txt, undefined, headers)).body.error).toBe('upload_rejected');
   });
 
+  test('a body that trickles in past the deadline is cut off', async () => {
+    t = await ingestApp({ headless: null, ingestionMs: 1000 });
+    await t.app.listen({ port: 0, host: '127.0.0.1' });
+    const { port } = t.app.server.address() as import('node:net').AddressInfo;
+    const net = await import('node:net');
+    const sock = net.connect(port, '127.0.0.1');
+    sock.on('error', () => {});
+    const boundary = 'slow';
+    sock.write(
+      `POST /api/faces/upload HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: multipart/form-data; boundary=${boundary}\r\nContent-Length: 1000000\r\n\r\n--${boundary}\r\nContent-Disposition: form-data; name="faces"; filename="a.jpg"\r\nContent-Type: image/jpeg\r\n\r\n`,
+    );
+    const drip = setInterval(() => sock.write('x'), 100);
+    const t0 = Date.now();
+    await new Promise<void>((res) => sock.on('close', () => res()));
+    clearInterval(drip);
+    expect(Date.now() - t0).toBeLessThan(2500);
+  }, 15_000);
+
   test('20 uploads per IP per hour', async () => {
     t = await ingestApp({ headless: null });
     const txt = [{ name: 'x.txt', type: 'text/plain', bytes: Buffer.from('x') }];

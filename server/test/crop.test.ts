@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { getEventListeners } from 'node:events';
 import fs from 'node:fs';
 import path from 'node:path';
 import sharp from 'sharp';
@@ -146,6 +147,18 @@ describe('FacePool limits', () => {
     await pool.close();
     await first;
   });
+});
+
+describe('FacePool listeners', () => {
+  test('finished jobs leave no abort listener on the shared ingestion signal', async () => {
+    const pool = new FacePool({ size: 2 });
+    const ctl = new AbortController();
+    const small = await sharp(photo('gemini7-crew.jpg')).resize(320).jpeg().toBuffer();
+    for (let i = 0; i < 12; i++) await pool.process(small, 20_000, ctl.signal);
+    // A listener left behind would keep each job, with its image bytes, until the signal aborts.
+    expect(getEventListeners(ctl.signal, 'abort')).toHaveLength(0);
+    await pool.close();
+  }, 30_000);
 });
 
 describe('FacePool abort', () => {

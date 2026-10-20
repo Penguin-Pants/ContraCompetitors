@@ -1,4 +1,4 @@
-import { attr, parseHtml, textOf, walkElements } from './html.ts';
+import { attr, parseHtml, textOf, TooDeep, walkElements } from './html.ts';
 
 /** Total pages per ingestion, homepage included (static and headless share it). */
 export const MAX_PAGES = 12;
@@ -78,6 +78,8 @@ export function largestFromSrcset(srcset: string): string | null {
   return best?.url ?? null;
 }
 
+const TRACKING_PARAM = /^(utm_\w+|fbclid|gclid|dclid|msclkid|mc_cid|mc_eid|_ga|_gl|ref|ref_src)$/i;
+
 function sameSite(a: URL, b: URL): boolean {
   const strip = (h: string) => h.replace(/^www\./, '');
   return strip(a.hostname) === strip(b.hostname);
@@ -105,13 +107,21 @@ function jsonLdAuthorImages(json: unknown, out: string[]) {
 
 /** Links, images and styles of one HTML page. `pageUrl` is the final URL after redirects. */
 export function scanHtml(html: string, pageUrl: string, kind: PageKind): PageScan {
-  const doc = parseHtml(html);
+  let doc;
+  try {
+    doc = parseHtml(html);
+  } catch (err) {
+    // A page nested too deep to parse safely gives nothing, like a page that fails to load.
+    if (err instanceof TooDeep) return { links: [], images: [], stylesheets: [], inlineStyles: [] };
+    throw err;
+  }
   let base = new URL(pageUrl);
-  walkElements(doc, (el) => {
+  walkElements(doc, null, (el) => {
     if (el.tagName === 'base') {
       const href = resolve(attr(el, 'href'), new URL(pageUrl));
       if (href) base = new URL(href);
     }
+    return null;
   });
   const links: Link[] = [];
   const images: ImageCandidate[] = [];
@@ -120,7 +130,11 @@ export function scanHtml(html: string, pageUrl: string, kind: PageKind): PageSca
   const pagePriority = kind === 'team' ? 1 : 0;
   const authorUrls: string[] = [];
 
-  walkElements(doc, (el, ancestors) => {
+  // State: "inside an author block" (class `author` or rel `author` on an ancestor).
+  walkElements(doc, false, (el, inAuthor) => {
+    const cls = (attr(el, 'class') ?? '').toLowerCase();
+    const rel = (attr(el, 'rel') ?? '').toLowerCase();
+    const authorHere = /\bauthor\b/.test(cls) || rel.split(/\s+/).includes('author');
     switch (el.tagName) {
       case 'a': {
         const url = resolve(attr(el, 'href'), base);
@@ -155,18 +169,14 @@ export function scanHtml(html: string, pageUrl: string, kind: PageKind): PageSca
           attr(el, 'src');
         const url = resolve(raw, base);
         if (!url || /\.svg(\?|$)/i.test(url)) break;
-        const author = ancestors.some((a) => {
-          const cls = (attr(a, 'class') ?? '').toLowerCase();
-          const rel = (attr(a, 'rel') ?? '').toLowerCase();
-          return /\bauthor\b/.test(cls) || rel.split(/\s+/).includes('author');
-        });
         images.push({
           url,
-          priority: author && (kind === 'blogPost' || kind === 'blog') ? 2 : pagePriority,
+          priority: inAuthor && (kind === 'blogPost' || kind === 'blog') ? 2 : pagePriority,
         });
         break;
       }
     }
+    return inAuthor || authorHere;
   });
   for (const raw of authorUrls) {
     const url = resolve(raw, base);
@@ -196,7 +206,9 @@ export function selectPages(
       continue;
     }
     if (!sameSite(u, origin)) continue;
-    u.search = '';
+    // Keep routing parameters (`?page=team`); drop tracking ones so they do not split pages.
+    for (const k of [...u.searchParams.keys()])
+      if (TRACKING_PARAM.test(k)) u.searchParams.delete(k);
     const key = u.href;
     if (taken.has(key)) continue;
     let path = u.pathname;

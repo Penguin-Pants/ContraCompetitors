@@ -60,6 +60,8 @@ export async function uploadRoutes(app: FastifyInstance) {
     const faces = new Map<string, FaceCrop>();
     let accepted = 0;
     let rejected = 0;
+    // Wall time for the whole request, body included: a body that trickles in is cut off.
+    const cut = setTimeout(() => req.raw.destroy(), s.ingestionMs);
     try {
       for await (const part of req.files()) {
         // In memory only: the file stream goes to a Buffer, never to a temp file.
@@ -91,6 +93,8 @@ export async function uploadRoutes(app: FastifyInstance) {
         return sendError(reply, 400, 'upload_rejected', 'The images took too long to process.');
       }
       throw err;
+    } finally {
+      clearTimeout(cut);
     }
     if (accepted === 0) {
       return sendError(
