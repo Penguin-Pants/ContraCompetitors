@@ -1,7 +1,7 @@
 # Logistics Run: Build Plan
 
 **Source of truth:** [`docs/requirements/logistics-run-requirements.md`](requirements/logistics-run-requirements.md) (v2, "Decision-complete").
-**Status:** In implementation. See section 7 for phase status.
+**Status:** Phases 1 to 9 implemented; Phase 10 art blocked; Phase 11 repo work done, deploy blocked. See section 7.
 **Scope:** Plan and implementation record.
 
 ---
@@ -902,7 +902,7 @@ Review method per phase: two passes on the full phase diff. Pass 1 checks covera
 
 | Phase | Status | Evidence | Remaining or blocked |
 |---|---|---|---|
-| 1 Scaffold and CI | ✅ Done | Vitest health + 5 migration-runner cases; Playwright home page; `npm start` serves client and `/api/health` | CI green on GitHub is confirmed on the PR |
+| 1 Scaffold and CI | ✅ Done | Vitest health + 5 migration-runner cases; Playwright home page; `npm start` serves client and `/api/health` | None. CI is green on GitHub (PR runs). |
 | 2 Renderer, input, loop | ✅ Done | Unit: scale `k` table, input map (arrows ignored), rotation, loop freeze, camera snap, manifest contract. E2E: pixel blocks at k=1 and k=2 with a 30 degree sprite (fails when `image-rendering` is not `pixelated`); narrow guard show, freeze, hide. Lint rule blocks `imageSmoothingEnabled = true`. | None |
 | 3 Level, movement, timer | ✅ Done | Unit: one-way land, drop and solid block; timer format, stop and Q-4 start rules; zone order and labeled exit; headless bot traversal 52.4 s (40 to 70 s). E2E: scripted run to the exit with a stopped timer; arrow keys do nothing. | Pacing re-tuned in Phase 4 with combat |
 | 4 Combat, enemies, pause | ⚠️ Done except manual playtest | Unit: spread symmetry, laser wall stop and pierce, invulnerability, lost life resets weapon, 0 lives full reset, pickups, nested difficulty spawn sets, 2 to 3 briefcases per zone, exit with enemies alive. Combat-bot pacing proxy: Easy 59.8 s, Medium 63.6 s, Hard 67.1 s (unit test guards Medium in 60 to 120 s). E2E: pause freeze 2 s and resume, Restart level, pixel blocks during laser + particles + rotated projectiles. | Manual playtest: 3 Medium runs by a competent human player, times recorded in the PR (agent cannot do this) |
@@ -964,5 +964,22 @@ Review method per phase: two passes on the full phase diff. Pass 1 checks covera
 
 ### 7.2 Proposed out-of-scope fixes
 
-None yet.
+Found during implementation. Not in any phase; not built. Each needs a decision.
 
+| # | Proposal | Why |
+|---|---|---|
+| P-1 | Redact client IPs from Fastify request logs (`req.remoteAddress`, `x-forwarded-for`) | Rate events store only an IP hash, but default request logs still print raw IPs. The plan only defines ingestion log fields. |
+| P-2 | Fall back from `crypto.randomUUID()` to a `crypto.getRandomValues` UUID | `randomUUID` exists only in secure contexts. Production (https) and localhost work; plain-http access over a LAN would fail to submit scores. |
+| P-3 | Move `actions/upload-artifact` to a release that targets Node 24 | GitHub warns that the v4 action runs on deprecated Node 20. |
+
+### 7.3 Requirement status at the end of this implementation
+
+Every requirement ID in section 4 has code and a passing check, except these:
+
+| ID | Status | What is missing |
+|---|---|---|
+| RND-5, THM-3 (art), ENM-2 (art), C-3 | Blocked | Sprite Fusion art (product owner OAuth sign-in). Placeholder art follows the same contract. |
+| C-4 | Open | Sprite Fusion terms review (launch checklist item 1). |
+| DEL-1, DEL-2 (hosted) | Open | Railway deploy (project, token, volume, domain). The image passes the Docker smoke test. |
+| ING-6 (production) | Open | Chromium sandbox on the production host or an isolated headless service (launch checklist item 5). Tested in CI and locally with the Playwright seccomp profile. |
+| SUC-1, LVL-4 (human) | Open | Human SUC-1 on the deployed URL and 3 recorded Medium playtests. Automated: real-URL SUC-1 run on the production server build, Medium bot proxy 63.6 s. |
