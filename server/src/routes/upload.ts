@@ -1,4 +1,4 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import multipart from '@fastify/multipart';
 import type { UploadResponse } from '@lr/shared/api';
 import type { FaceCrop } from '../faces/crop.ts';
@@ -14,6 +14,25 @@ export const UPLOAD_MAX_BYTES = 5 * 1024 * 1024;
  * POST /api/faces/upload (ING-7, D-2): up to 10 images of 5 MB each, processed in memory with the
  * same decode, detect and crop path. Nothing is written to disk or to the cache.
  */
+/**
+ * True for a browser request sent by another site. A multipart POST needs no CORS preflight, so
+ * without this a third-party page could make its visitors use their upload slots. Requests
+ * without these headers (curl, operations scripts) pass.
+ */
+function crossSite(req: FastifyRequest): boolean {
+  const site = req.headers['sec-fetch-site'];
+  if (site) return site !== 'same-origin' && site !== 'none';
+  const origin = req.headers.origin;
+  if (!origin) return false;
+  try {
+    const o = new URL(origin);
+    // Same normalization on both sides (a default port is dropped).
+    return o.host !== new URL(`${o.protocol}//${req.host}`).host;
+  } catch {
+    return true;
+  }
+}
+
 export async function uploadRoutes(app: FastifyInstance) {
   await app.register(multipart, {
     limits: {
@@ -25,6 +44,8 @@ export async function uploadRoutes(app: FastifyInstance) {
   });
   app.post('/api/faces/upload', async (req, reply) => {
     const s = app.services;
+    if (crossSite(req))
+      return sendError(reply, 403, 'bad_request', 'Uploads must come from this site.');
     if (!req.isMultipart())
       return sendError(reply, 400, 'upload_rejected', 'Send images as multipart/form-data.');
     if (!s.uploadLimiter.tryConsume(req.ip)) {

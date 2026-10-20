@@ -2,7 +2,7 @@ import type http from 'node:http';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { html, redirect, startFixture, type FixtureServer } from './helpers/fixtureServer.ts';
 import { crewAt, ingestApp, jpeg, site, type IngestTestApp } from './helpers/ingestApp.ts';
-import { IMAGE_CANDIDATE_CAP } from '../src/ingest/headless.ts';
+import { CANDIDATES_PER_PRIORITY } from '../src/ingest/images.ts';
 
 let f: FixtureServer;
 let inner: FixtureServer;
@@ -164,7 +164,9 @@ describe('headless retry', () => {
     expect(flood.hits).toBeGreaterThan(50);
     expect(flood.max).toBeLessThanOrEqual(6);
     expect(t.app.services.headlessStats!.lastRequests).toBeGreaterThan(200);
-    expect(t.app.services.headlessStats!.lastImages).toBeLessThanOrEqual(IMAGE_CANDIDATE_CAP);
+    expect(t.app.services.headlessStats!.lastImages).toBeLessThanOrEqual(
+      3 * CANDIDATES_PER_PRIORITY,
+    );
   }, 40_000);
 
   test('a page that hangs hits the deadline; no context stays open, the slot is free, the next request starts at once', async () => {

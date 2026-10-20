@@ -10,14 +10,13 @@ import type { FastifyBaseLogger } from 'fastify';
 import { ByteBudget, FetchError, safeFetch, type NetPolicy } from '../net/safeFetch.ts';
 import { LIMITS } from '../net/limits.ts';
 import { scanHtml, selectPages, type ImageCandidate, type PageKind } from './crawl.ts';
+import { CandidateSet } from './images.ts';
 import type { HeadlessResult, HeadlessRun } from './pipeline.ts';
 
 export const MAX_SESSIONS = 2;
 /** Non-image requests per ingestion inside the browser. */
 export const REQUEST_CAP = 200;
 export const MAX_IN_FLIGHT = 6;
-/** Distinct image URLs kept per session. The image queue later takes the best 150. */
-export const IMAGE_CANDIDATE_CAP = 1000;
 const CLOSE_TIMEOUT_MS = 2000;
 const SETTLE_MS = 1500;
 const SKIPPED_TYPES = new Set(['image', 'media', 'font']);
@@ -174,20 +173,16 @@ export function createHeadless(opts: HeadlessOptions): HeadlessRunner {
     url: string,
     pagesLeft: number,
     signal: AbortSignal,
+    budget: ByteBudget,
   ): Promise<HeadlessResult> {
     const b = await untilAbort(launch(), signal);
-    const budget = new ByteBudget();
-    // Deduped and capped as they arrive, so a page that makes image requests without end cannot
-    // grow this. A repeat keeps its highest priority.
-    const images = new Map<string, number>();
+    const images = new CandidateSet();
     const addImage = (c: ImageCandidate) => {
-      const prev = images.get(c.url);
-      if (prev !== undefined) images.set(c.url, Math.max(prev, c.priority));
-      else if (images.size < IMAGE_CANDIDATE_CAP) images.set(c.url, c.priority);
+      images.add(c);
       stats.lastImages = images.size;
     };
     const result = (): HeadlessResult => ({
-      imageUrls: [...images].map(([url, priority]) => ({ url, priority })),
+      imageUrls: images.list(),
       hosts: [...hosts],
     });
     const hosts = new Set<string>();
@@ -317,7 +312,7 @@ export function createHeadless(opts: HeadlessOptions): HeadlessRunner {
     }
   }
 
-  const run: HeadlessRun = async (url, pagesLeft, signal) => {
+  const run: HeadlessRun = async (url, pagesLeft, signal, budget) => {
     stats.queued++;
     try {
       await sessions.acquire(signal);
@@ -326,7 +321,7 @@ export function createHeadless(opts: HeadlessOptions): HeadlessRunner {
     }
     stats.activeSessions++;
     try {
-      return await session(url, pagesLeft, signal);
+      return await session(url, pagesLeft, signal, budget);
     } catch (err) {
       if (!signal.aborted) opts.log.error({ err }, 'headless launch failed');
       return { imageUrls: [], hosts: [] };

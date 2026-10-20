@@ -2,7 +2,7 @@ import type { FaceCrop } from '../faces/crop.ts';
 import { ByteBudget, safeFetch, type NetPolicy } from '../net/safeFetch.ts';
 import { extractColors } from './colors.ts';
 import { MAX_PAGES, scanHtml, selectPages, type ImageCandidate, type PageKind } from './crawl.ts';
-import { collectFaces, prioritize, type Accumulator } from './images.ts';
+import { CandidateSet, collectFaces, prioritize, type Accumulator } from './images.ts';
 
 /** Faces below this trigger the headless retry (ING-6) and the upload prompt (ING-7). */
 export const MIN_FACES = 5;
@@ -14,11 +14,15 @@ export interface HeadlessResult {
   hosts: string[];
 }
 
-/** Renders pages in Chromium. `pagesLeft` shares the 12-page cap with the static crawl. */
+/**
+ * Renders pages in Chromium. `pagesLeft` shares the 12-page cap with the static crawl, and
+ * `budget` is the same byte budget, so one ingestion never reads more than its limit.
+ */
 export type HeadlessRun = (
   url: string,
   pagesLeft: number,
   signal: AbortSignal,
+  budget: ByteBudget,
 ) => Promise<HeadlessResult>;
 
 export interface PipelineDeps {
@@ -74,7 +78,8 @@ export async function runPipeline(
 
   // Static crawl: team, about, leadership pages and blog posts, max 12 pages.
   const seen = new Set([home.url, url]);
-  const images: ImageCandidate[] = [...homeScan.images];
+  const images = new CandidateSet();
+  homeScan.images.forEach((c) => images.add(c));
   let queue: { url: string; kind: PageKind }[] = selectPages(homeScan.links, home.url, seen);
   for (let round = 0; round < 2 && queue.length && !signal.aborted; round++) {
     const batch = queue.slice(0, MAX_PAGES - acc.stats.pages);
@@ -87,7 +92,7 @@ export async function runPipeline(
         const res = await fetchHtml(page.url);
         for (const h of res.hosts) acc.sourceHosts.add(h);
         const scan = scanHtml(res.body.toString('utf8'), res.url, page.kind);
-        images.push(...scan.images);
+        scan.images.forEach((c) => images.add(c));
         // A blog index links to its posts.
         if (page.kind === 'blog')
           found.push(
@@ -107,12 +112,12 @@ export async function runPipeline(
     },
     detect: (bytes: Uint8Array) => deps.detect(bytes, signal),
   };
-  await collectFaces(prioritize(images, acc.tried), stage, acc, signal);
+  await collectFaces(prioritize(images.list(), acc.tried), stage, acc, signal);
   if (acc.faces.size >= MIN_FACES || !deps.headless || signal.aborted) return { source: 'static' };
 
   // ING-6: headless retry for JavaScript-rendered sites.
   acc.stats.headless = true;
-  const rendered = await deps.headless(url, MAX_PAGES - acc.stats.pages + 1, signal);
+  const rendered = await deps.headless(url, MAX_PAGES - acc.stats.pages + 1, signal, budget);
   for (const h of rendered.hosts) acc.sourceHosts.add(h);
   await collectFaces(prioritize(rendered.imageUrls, acc.tried), stage, acc, signal);
   return { source: 'headless' };

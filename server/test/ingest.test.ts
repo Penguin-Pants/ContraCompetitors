@@ -129,6 +129,22 @@ describe('ingest: static path', () => {
     expect(body.faces).toHaveLength(2);
   });
 
+  test('the headless retry charges the same byte budget as the static crawl', async () => {
+    let usedAtStart = -1;
+    let limit = -1;
+    t = await ingestApp({
+      headless: async (_url, _pages, _signal, budget) => {
+        usedAtStart = budget.used;
+        limit = budget.limit;
+        return { imageUrls: [], hosts: [] };
+      },
+    });
+    await t.ingest(site(f, 'bad-images.test'));
+    // The static crawl already charged the homepage, CSS, team page and the decoded images.
+    expect(usedAtStart).toBeGreaterThan(50_000);
+    expect(limit).toBe(40 * 1024 * 1024);
+  });
+
   test('invalid, internal and blocklisted URLs; invalid URLs and blocked domains use no slot', async () => {
     t = await ingestApp({ headless });
     for (const u of ['ftp://corp.test/', 'not a url', 'http://user:pw@corp.test/']) {

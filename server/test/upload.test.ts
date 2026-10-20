@@ -29,12 +29,15 @@ async function upload(
   app: IngestTestApp['app'],
   files: Parameters<typeof multipart>[0],
   ip = '198.51.100.7',
+  headers: Record<string, string> = {},
 ) {
+  const body = multipart(files);
   const res = await app.inject({
     method: 'POST',
     url: '/api/faces/upload',
     remoteAddress: ip,
-    ...multipart(files),
+    payload: body.payload,
+    headers: { ...body.headers, ...headers },
   });
   return { status: res.statusCode, body: res.json() };
 }
@@ -90,6 +93,25 @@ describe('upload', () => {
     const r = await upload(t.app, [{ name: 'a.jpg', type: 'image/jpeg', bytes: a! }]);
     expect([r.status, r.body.error]).toEqual([400, 'upload_rejected']);
   }, 20_000);
+
+  test('a cross-site browser upload is refused before it uses a slot or detection', async () => {
+    t = await ingestApp({ headless: null });
+    const txt = [{ name: 'x.txt', type: 'text/plain', bytes: Buffer.from('x') }];
+    for (let i = 0; i < 25; i++) {
+      const r = await upload(t.app, txt, undefined, { 'sec-fetch-site': 'cross-site' });
+      expect([r.status, r.body.error]).toEqual([403, 'bad_request']);
+    }
+    const old = await upload(t.app, txt, undefined, { origin: 'https://evil.example' });
+    expect(old.status).toBe(403);
+    // No slot was used: same-origin, matching-Origin and no-Origin requests still get through.
+    const allowed: Record<string, string>[] = [
+      { 'sec-fetch-site': 'same-origin' },
+      { origin: 'http://localhost:80', host: 'localhost:80' },
+      {},
+    ];
+    for (const headers of allowed)
+      expect((await upload(t.app, txt, undefined, headers)).body.error).toBe('upload_rejected');
+  });
 
   test('20 uploads per IP per hour', async () => {
     t = await ingestApp({ headless: null });
