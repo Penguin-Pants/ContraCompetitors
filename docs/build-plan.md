@@ -579,7 +579,9 @@ Placeholder characters and props are replaced by committed Sprite Fusion art tha
 RND-5, RND-6, RND-7, THM-3 (bobble-head bodies), ENM-2, C-3.
 
 **External dependency**
-A person must sign in to the Sprite Fusion MCP (`claude mcp add --transport http spritefusion https://www.spritefusion.com/mcp`, then `/mcp` sign-in) and have credits (15 per generation call). The current cloud session has no Sprite Fusion connection. An API key (`Authorization: Bearer sf_live_...`) also works for clients without OAuth.
+- **Who runs it:** the product owner connects the Sprite Fusion MCP in a Claude Code session (`claude mcp add --transport http spritefusion https://www.spritefusion.com/mcp`, then `/mcp`, choose `spritefusion`, sign in). An agent in that session runs this phase.
+- **Why a person:** the MCP uses OAuth. A person must approve the connection on a Sprite Fusion page. An agent cannot do this step.
+- **Credits:** the AI Pixel Art Generator is not the free Tilemap Editor. Generation tools cost 15 credits per call (refunded if no sprite is saved). The asset list below needs about 15 to 30 calls (estimate), so about 225 to 450 credits. Run the free `get_credits` tool before you start.
 
 **Changes**
 - Generate with `generate_sprites` and `generate_sprites_in_style` (32 px suggested), animate with `animate_sprite`, fix with `edit_sprite`. Tag every result `logistics-run`. Do not use `create_8_directions` or normal maps (non-goal).
@@ -773,7 +775,7 @@ Phases 9 and 10.
 
 | Type | Item | Blocks |
 |---|---|---|
-| External dependency | Sprite Fusion sign-in and credits for Phase 10 | Phase 10 only. Phases 1 to 9 use placeholders. |
+| External dependency | Product owner connects the Sprite Fusion MCP (OAuth sign-in) and confirms about 225 to 450 credits with `get_credits` | Phase 10 only. Phases 1 to 9 use placeholders. |
 | Launch gate | Sprite Fusion terms review (C-4) | Public launch only |
 | Config value | `CONTACT_EMAIL` for the takedown link | Phase 11 deploy only. Code uses a config value. |
 | Config value | Railway project, volume and public domain | Phase 11 only |
